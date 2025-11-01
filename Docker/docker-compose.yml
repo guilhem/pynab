@@ -11,28 +11,36 @@ services:
           - var-lib-postgresql-data:/var/lib/postgresql/data
           - var-run-postgresql:/var/run/postgresql
         environment:
-          - POSTGRES_USER=pynab
-          - POSTGRES_PASSWORD=pynab
-          - TZ=Europe/Paris
+          - POSTGRES_USER=${POSTGRES_USER:-pynab}
+          - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pynab}
+          - TZ=${TZ:-Europe/Paris}
     # Pynab services
     pynab:
         container_name: Pynab
         build:
             context: ..
             dockerfile: Docker/nab/Dockerfile
+            args:
+              PYTHON_VERSION: ${PYTHON_VERSION:-3.9}
+              INSTALL_EXTRAS: ${INSTALL_EXTRAS:-all}
         volumes:
           - ../:/opt/pynab
           - var-run-postgresql:/var/run/postgresql
         depends_on:
           - db
         environment:
-          - DAEMONS=nab8balld nabairqualityd nabbookd nabclockd nabmastodond nabsurprised nabtaichid nabweatherd
-          - TZ=Europe/Paris
+          # Services to run (space-separated list)
+          - DAEMONS=${DAEMONS:-nab8balld nabairqualityd nabbookd nabclockd nabmastodond nabsurprised nabtaichid nabweatherd}
+          - TZ=${TZ:-Europe/Paris}
+          # Virtual hardware mode (true for development)
+          - PYNAB_VIRTUAL_HARDWARE=${PYNAB_VIRTUAL_HARDWARE:-true}
+          # Debug mode
+          - DJANGO_DEBUG=${DJANGO_DEBUG:-false}
         command: ["/bin/bash", "/usr/local/bin/run-pynab.sh"]
         ports:
-          - 10543:10543
-          - 10544:10544
-          - 8000:8000
+          - "${NABD_PORT:-10543}:10543"
+          - "${NABIO_PORT:-10544}:10544"
+          - "${WEB_PORT:-8000}:8000"
 volumes:
     # Share the PostgreSQL socket between containers
     var-run-postgresql:

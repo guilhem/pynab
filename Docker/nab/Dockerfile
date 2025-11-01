@@ -1,4 +1,9 @@
-FROM python:3.7-bullseye
+# Support multiple Python versions
+ARG PYTHON_VERSION=3.9
+FROM python:${PYTHON_VERSION}-bullseye
+
+# Install extras to include (default: none for Docker)
+ARG INSTALL_EXTRAS=""
 
 RUN apt-get update && apt-get install -y \
     postgresql-client gettext \
@@ -38,15 +43,23 @@ USER tagtagtag
 WORKDIR /opt/pynab
 
 ENV VIRTUAL_ENV=/opt/venv
-RUN python3.7 -m venv ${VIRTUAL_ENV}
+RUN python -m venv ${VIRTUAL_ENV}
 ENV PATH=${VIRTUAL_ENV}/bin:${PATH}
 
-COPY requirements.txt /tmp/requirements.txt
-# No ASR in virtual environment
-RUN grep -v -e py-kaldi-asr -e snips-nlu < /tmp/requirements.txt > /tmp/requirements_docker.txt
+# Copy pyproject.toml for modern pip installation
+COPY --chown=tagtagtag:pi pyproject.toml /opt/pynab/
+COPY --chown=tagtagtag:pi requirements.txt /opt/pynab/
 
-RUN ${VIRTUAL_ENV}/bin/pip install wheel
-RUN ${VIRTUAL_ENV}/bin/pip install -r /tmp/requirements_docker.txt
+# Install using pip with optional extras
+# Default: no ASR/NLU for Docker (use INSTALL_EXTRAS build arg to customize)
+RUN ${VIRTUAL_ENV}/bin/pip install --upgrade pip wheel
+RUN if [ -n "${INSTALL_EXTRAS}" ]; then \
+        ${VIRTUAL_ENV}/bin/pip install -e "/opt/pynab[${INSTALL_EXTRAS}]"; \
+    else \
+        # Fallback to requirements.txt without ASR/NLU
+        grep -v -e py-kaldi-asr -e snips-nlu < /opt/pynab/requirements.txt > /tmp/requirements_docker.txt && \
+        ${VIRTUAL_ENV}/bin/pip install -r /tmp/requirements_docker.txt; \
+    fi
 
 ENV NABD_HOST=pynab
 ENV NABD_PORT_NUMBER=10543

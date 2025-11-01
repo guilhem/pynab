@@ -1,3 +1,114 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pynab"
+version = "0.1.0"
+description = "Nabaztag/tag:tag:tag rabbit server"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Paul Guyot", email = "pguyot@kallisys.net"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "wheel",
+    "Django>=3.2.25,<5.0",
+    "django-stubs==1.11.0",
+    "django-stubs-ext==0.4.0",
+    "gunicorn==22.0.0",
+    "lockfile==0.12.2",
+    "psycopg2-binary==2.9.3",
+    "ndef==0.2",
+    "pynfcdev @ https://github.com/pguyot/pynfcdev/releases/download/v0.7.4/pynfcdev-0.7.4-py3-none-any.whl",
+]
+
+[project.optional-dependencies]
+# Hardware dependencies for Raspberry Pi
+hardware = [
+    "pyalsaaudio==0.9.0 ; sys_platform == 'linux'",
+    "rpi-ws281x==4.3.3 ; sys_platform == 'linux' and ('armv6l' in platform_machine or 'armv7l' in platform_machine or 'aarch64' in platform_machine)",
+    "RPi.GPIO==0.7.1 ; sys_platform == 'linux' and ('armv6l' in platform_machine or 'armv7l' in platform_machine or 'aarch64' in platform_machine)",
+    "smbus2==0.4.1",
+]
+
+# ASR (Automatic Speech Recognition) with Kaldi
+asr = [
+    "py-kaldi-asr @ https://github.com/pguyot/py-kaldi-asr/releases/download/v0.5.3/py_kaldi_asr-0.5.3-cp37-cp37m-linux_armv6l.whl ; sys_platform == 'linux' and 'armv6l' in platform_machine and python_version == '3.7'",
+    "py-kaldi-asr @ https://github.com/pguyot/py-kaldi-asr/releases/download/v0.5.3/py_kaldi_asr-0.5.3-cp39-cp39-linux_armv6l.whl ; sys_platform == 'linux' and 'armv6l' in platform_machine and python_version == '3.9'",
+    "py-kaldi-asr @ https://github.com/pguyot/py-kaldi-asr/releases/download/v0.5.3/py_kaldi_asr-0.5.3-cp37-cp37m-linux_armv7l.whl ; sys_platform == 'linux' and 'armv7l' in platform_machine and python_version == '3.7'",
+    "py-kaldi-asr @ https://github.com/pguyot/py-kaldi-asr/releases/download/v0.5.3/py_kaldi_asr-0.5.3-cp39-cp39-linux_armv7l.whl ; sys_platform == 'linux' and 'armv7l' in platform_machine and python_version == '3.9'",
+    "py-kaldi-asr @ https://github.com/pguyot/py-kaldi-asr/releases/download/v0.5.3/py_kaldi_asr-0.5.3-cp39-cp39-linux_aarch64.whl ; sys_platform == 'linux' and 'aarch64' in platform_machine and python_version == '3.9'",
+    "py-kaldi-asr @ git+https://github.com/pguyot/py-kaldi-asr@v0.5.3 ; sys_platform != 'linux' or ('armv6l' not in platform_machine and 'armv7l' not in platform_machine and 'aarch64' not in platform_machine) or (python_version != '3.7' and python_version != '3.9')",
+]
+
+# NLU (Natural Language Understanding) with Snips
+nlu = [
+    "snips-nlu @ https://github.com/pguyot/snips-nlu/releases/download/0.20.2.1/snips_nlu-0.20.2.1-py3-none-any.whl",
+    "snips-nlu-parsers @ https://github.com/pguyot/snips-nlu-parsers/releases/download/v0.4.3/snips_nlu_parsers-0.4.3-cp37-cp37m-linux_armv6l.whl ; sys_platform == 'linux' and 'armv6l' in platform_machine and python_version == '3.7'",
+    "snips-nlu-parsers @ https://github.com/pguyot/snips-nlu-parsers/releases/download/v0.4.3/snips_nlu_parsers-0.4.3-cp39-cp39-linux_armv6l.whl ; sys_platform == 'linux' and 'armv6l' in platform_machine and python_version == '3.9'",
+    "snips-nlu-parsers @ https://github.com/pguyot/snips-nlu-parsers/releases/download/v0.4.3/snips_nlu_parsers-0.4.3-cp37-cp37m-linux_armv7l.whl ; sys_platform == 'linux' and 'armv7l' in platform_machine and python_version == '3.7'",
+    "snips-nlu-parsers @ https://github.com/pguyot/snips-nlu-parsers/releases/download/v0.4.3/snips_nlu_parsers-0.4.3-cp39-cp39-linux_armv7l.whl ; sys_platform == 'linux' and 'armv7l' in platform_machine and python_version == '3.9'",
+    "snips-nlu-parsers @ https://github.com/pguyot/snips-nlu-parsers/releases/download/v0.4.3/snips_nlu_parsers-0.4.3-cp39-cp39-linux_aarch64.whl ; sys_platform == 'linux' and 'aarch64' in platform_machine and python_version == '3.9'",
+    "snips-nlu-parsers @ git+https://github.com/pguyot/snips-nlu-parsers@0.4.3-2024#subdirectory=python ; sys_platform != 'linux' or ('armv6l' not in platform_machine and 'armv7l' not in platform_machine and 'aarch64' not in platform_machine) or (python_version != '3.7' and python_version != '3.9')",
+    "snips-nlu-utils @ https://github.com/pguyot/snips-nlu-utils/releases/download/v0.9.1/snips_nlu_utils-0.9.1-cp37-cp37m-linux_armv6l.whl ; sys_platform == 'linux' and 'armv6l' in platform_machine and python_version == '3.7'",
+    "snips-nlu-utils @ https://github.com/pguyot/snips-nlu-utils/releases/download/v0.9.1/snips_nlu_utils-0.9.1-cp39-cp39-linux_armv6l.whl ; sys_platform == 'linux' and 'armv6l' in platform_machine and python_version == '3.9'",
+    "snips-nlu-utils @ https://github.com/pguyot/snips-nlu-utils/releases/download/v0.9.1/snips_nlu_utils-0.9.1-cp37-cp37m-linux_armv7l.whl ; sys_platform == 'linux' and 'armv7l' in platform_machine and python_version == '3.7'",
+    "snips-nlu-utils @ https://github.com/pguyot/snips-nlu-utils/releases/download/v0.9.1/snips_nlu_utils-0.9.1-cp39-cp39-linux_armv7l.whl ; sys_platform == 'linux' and 'armv7l' in platform_machine and python_version == '3.9'",
+    "snips-nlu-utils @ https://github.com/pguyot/snips-nlu-utils/releases/download/v0.9.1/snips_nlu_utils-0.9.1-cp39-cp39-linux_aarch64.whl ; sys_platform == 'linux' and 'aarch64' in platform_machine and python_version == '3.9'",
+    "snips-nlu-utils==0.9.1 ; sys_platform != 'linux' or ('armv6l' not in platform_machine and 'armv7l' not in platform_machine and 'aarch64' not in platform_machine) or (python_version != '3.7' and python_version != '3.9')",
+]
+
+# External services support (Mastodon, weather)
+services = [
+    "Mastodon.py==1.5.1",
+    "meteofrance-api==1.0.2",
+    "mpg123==0.4",
+]
+
+# Development and testing dependencies
+dev = [
+    "mypy==0.950",
+    "pytest==7.0.1",
+    "pytest-django==3.8.0",
+    "pytest-pep8==1.0.6",
+    "asynctest==0.13.0",
+    "coverage==6.3.2",
+    "black==22.3.0",
+    "flake8==4.0.1",
+    "isort==5.10.1",
+    "pre_commit==2.17.0",
+]
+
+# All optional dependencies for full installation
+all = [
+    "pynab[hardware,asr,nlu,services]",
+]
+
+[project.scripts]
+pynab-install = "scripts.install:main"
+pynab-setup-drivers = "scripts.setup_drivers:main"
+pynab-setup-system = "scripts.setup_system:main"
+
+[project.urls]
+Homepage = "https://github.com/nabaztag2018/pynab"
+Documentation = "https://github.com/nabaztag2018/pynab/blob/master/README.md"
+Repository = "https://github.com/nabaztag2018/pynab"
+Issues = "https://github.com/nabaztag2018/pynab/issues"
+
+[tool.setuptools]
+packages = ["nabcommon", "nabd", "nabweb", "nabboot", "nab8balld", "nabairqualityd", "nabbookd", "nabclockd", "nabiftttd", "nabmastodond", "nabradio", "nabsurprised", "nabtaichid", "nabweatherd", "nabwebhook", "scripts"]
+
 [tool.black]
 line-length = 79
 

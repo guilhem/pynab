@@ -8,10 +8,8 @@ version = "0.1.0"
 description = "Nabaztag/tag:tag:tag rabbit server"
 readme = "README.md"
 requires-python = ">=3.7"
-license = {text = "Apache-2.0"}
-authors = [
-    {name = "Paul Guyot", email = "pguyot@kallisys.net"}
-]
+license = { text = "Apache-2.0" }
+authors = [{ name = "Paul Guyot", email = "pguyot@kallisys.net" }]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
@@ -38,7 +36,7 @@ dependencies = [
 hardware = [
     "pyalsaaudio==0.9.0 ; sys_platform == 'linux'",
     "rpi-ws281x==4.3.3 ; sys_platform == 'linux' and ('armv6l' in platform_machine or 'armv7l' in platform_machine or 'aarch64' in platform_machine)",
-    "RPi.GPIO==0.7.1 ; sys_platform == 'linux' and ('armv6l' in platform_machine or 'armv7l' in platform_machine or 'aarch64' in platform_machine)",
+    "rpi-lgpio>=0.6.0 ; sys_platform == 'linux' and ('armv6l' in platform_machine or 'armv7l' in platform_machine or 'aarch64' in platform_machine)",
     "smbus2==0.4.1",
 ]
 
@@ -70,11 +68,7 @@ nlu = [
 ]
 
 # External services support (Mastodon, weather)
-services = [
-    "Mastodon.py==1.5.1",
-    "meteofrance-api==1.0.2",
-    "mpg123==0.4",
-]
+services = ["Mastodon.py==1.5.1", "meteofrance-api==1.0.2", "mpg123==0.4"]
 
 # Development and testing dependencies
 dev = [
@@ -91,9 +85,7 @@ dev = [
 ]
 
 # All optional dependencies for full installation
-all = [
-    "pynab[hardware,asr,nlu,services]",
-]
+all = ["pynab[hardware,asr,nlu,services]"]
 
 [project.scripts]
 pynab-install = "scripts.install:main"
@@ -107,16 +99,31 @@ Repository = "https://github.com/nabaztag2018/pynab"
 Issues = "https://github.com/nabaztag2018/pynab/issues"
 
 [tool.setuptools]
-packages = ["nabcommon", "nabd", "nabweb", "nabboot", "nab8balld", "nabairqualityd", "nabbookd", "nabclockd", "nabiftttd", "nabmastodond", "nabradio", "nabsurprised", "nabtaichid", "nabweatherd", "nabwebhook", "scripts"]
+packages = [
+    "nabcommon",
+    "nabd",
+    "nabweb",
+    "nabboot",
+    "nab8balld",
+    "nabairqualityd",
+    "nabbookd",
+    "nabclockd",
+    "nabiftttd",
+    "nabmastodond",
+    "nabradio",
+    "nabsurprised",
+    "nabtaichid",
+    "nabweatherd",
+    "nabwebhook",
+    "scripts",
+]
 
 [tool.black]
 line-length = 79
 
 [tool.mypy]
 plugins = ["mypy_django_plugin.main"]
-exclude = [
-    "migrations"
-]
+exclude = ["migrations"]
 namespace_packages = true
 
 [tool.django-stubs]

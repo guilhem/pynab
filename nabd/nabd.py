@@ -69,9 +69,7 @@ STATUS_CANCELED = cast(ResponseOKPacketProto, {"status": "canceled"})
 STATUS_FAILURE = cast(ResponseFailurePacketProto, {"status": "failure"})
 
 
-def status_error(
-    error_class: str, error_message: str
-) -> ResponseErrorPacketProto:
+def status_error(error_class: str, error_message: str) -> ResponseErrorPacketProto:
     return cast(
         ResponseErrorPacketProto,
         {"status": "error", "class": error_class, "message": error_message},
@@ -126,17 +124,25 @@ class Nabd:
         self.playing_request_id: Optional[str] = None
         Nabd.leds_boot(self.nabio, 2)
         if self.nabio.has_sound_input():
-            from . import i18n
-            from .asr import ASR
-            from .nlu import NLU
+            try:
+                from . import i18n
+                from .asr import ASR
+                from .nlu import NLU
 
-            config = i18n.Config.load()
-            self._asr_locale = ASR.get_locale(config.locale)
-            self.asr: Optional[ASR] = ASR(self._asr_locale)
-            Nabd.leds_boot(self.nabio, 3)
-            self._nlu_locale = NLU.get_locale(config.locale)
-            self.nlu: Optional[NLU] = NLU(self._nlu_locale)
-            Nabd.leds_boot(self.nabio, 4)
+                config = i18n.Config.load()
+                self._asr_locale = ASR.get_locale(config.locale)
+                self.asr: Optional[ASR] = ASR(self._asr_locale)
+                Nabd.leds_boot(self.nabio, 3)
+                self._nlu_locale = NLU.get_locale(config.locale)
+                self.nlu: Optional[NLU] = NLU(self._nlu_locale)
+                Nabd.leds_boot(self.nabio, 4)
+            except ImportError as e:
+                print(
+                    f"Warning: ASR/NLU dependencies not available: {e}. "
+                    "Sound input will be disabled."
+                )
+                self.asr = None
+                self.nlu = None
         else:
             self.asr = None
             self.nlu = None
@@ -146,28 +152,36 @@ class Nabd:
         Reload configuration.
         """
         if self.nabio.has_sound_input():
-            from . import i18n
-            from .asr import ASR
-            from .nlu import NLU
+            try:
+                from . import i18n
+                from .asr import ASR
+                from .nlu import NLU
 
-            config = await i18n.Config.load_async()
-            new_asr_locale = ASR.get_locale(config.locale)
-            new_nlu_locale = NLU.get_locale(config.locale)
-            if new_asr_locale != self._asr_locale:
-                Nabd.leds_boot(self.nabio, 2)
-                self._asr_locale = new_asr_locale
+                config = await i18n.Config.load_async()
+                new_asr_locale = ASR.get_locale(config.locale)
+                new_nlu_locale = NLU.get_locale(config.locale)
+                if new_asr_locale != self._asr_locale:
+                    Nabd.leds_boot(self.nabio, 2)
+                    self._asr_locale = new_asr_locale
+                    self.asr = None
+                    gc.collect()
+                    self.asr = ASR(self._asr_locale)
+                    Nabd.leds_boot(self.nabio, 3)
+                if new_nlu_locale != self._nlu_locale:
+                    Nabd.leds_boot(self.nabio, 3)
+                    self._nlu_locale = new_nlu_locale
+                    self.nlu = None
+                    gc.collect()
+                    self.nlu = NLU(self._nlu_locale)
+                    Nabd.leds_boot(self.nabio, 4)
+                self.nabio.set_leds(None, None, None, None, None)
+            except ImportError as e:
+                print(
+                    f"Warning: ASR/NLU dependencies not available: {e}. "
+                    "Sound input will be disabled."
+                )
                 self.asr = None
-                gc.collect()
-                self.asr = ASR(self._asr_locale)
-                Nabd.leds_boot(self.nabio, 3)
-            if new_nlu_locale != self._nlu_locale:
-                Nabd.leds_boot(self.nabio, 3)
-                self._nlu_locale = new_nlu_locale
                 self.nlu = None
-                gc.collect()
-                self.nlu = NLU(self._nlu_locale)
-                Nabd.leds_boot(self.nabio, 4)
-            self.nabio.set_leds(None, None, None, None, None)
         self.nabio.pulse(Led.BOTTOM, (255, 0, 255))  # Fuchsia
 
     async def _do_transition_to_idle(self):
@@ -190,9 +204,7 @@ class Nabd:
 
     async def sleep_setup(self):
         self.nabio.set_leds(None, None, None, None, None)
-        await self.nabio.move_ears(
-            Nabd.SLEEP_EAR_POSITION, Nabd.SLEEP_EAR_POSITION
-        )
+        await self.nabio.move_ears(Nabd.SLEEP_EAR_POSITION, Nabd.SLEEP_EAR_POSITION)
 
     async def idle_worker_loop(self):
         """
@@ -209,10 +221,7 @@ class Nabd:
                         item = self.idle_queue.popleft()
                         await self.process_idle_item(item)
                     else:
-                        if (
-                            self.state == State.IDLE
-                            and len(self.info.items()) > 0
-                        ):
+                        if self.state == State.IDLE and len(self.info.items()) > 0:
                             for key, value in self.info.copy().items():
                                 notified = await self.nabio.play_info(
                                     self.idle_cv,
@@ -293,10 +302,7 @@ class Nabd:
                         self.write_response_packet(item[0], STATUS_OK, item[1])
                         await self.set_state(State.ASLEEP)
                         break
-                elif (
-                    item[0]["type"] == "mode"
-                    and item[0]["mode"] == "interactive"
-                ):
+                elif item[0]["type"] == "mode" and item[0]["mode"] == "interactive":
                     self.write_response_packet(item[0], STATUS_OK, item[1])
                     await self.set_state(State.INTERACTIVE)
                     self.interactive_service_writer = item[1]
@@ -412,9 +418,9 @@ class Nabd:
                     writer,
                 )
                 return None
-            if not isinstance(
-                packet["animation"]["tempo"], int
-            ) and not isinstance(packet["animation"]["tempo"], float):
+            if not isinstance(packet["animation"]["tempo"], int) and not isinstance(
+                packet["animation"]["tempo"], float
+            ):
                 self.write_response_packet(
                     packet,
                     status_error_malformed_packet(
@@ -457,9 +463,7 @@ class Nabd:
                             "time": now,
                         },
                     )
-                await self.nabio.move_ears(
-                    self.ears["left"], self.ears["right"]
-                )
+                await self.nabio.move_ears(self.ears["left"], self.ears["right"])
             self.write_response_packet(packet, STATUS_OK, writer)
 
     def __check_ears_packet(
@@ -469,24 +473,18 @@ class Nabd:
         if "left" in packet and not isinstance(packet["left"], int):
             self.write_response_packet(
                 packet,
-                status_error_malformed_packet(
-                    "Invalid left slot, expected an int"
-                ),
+                status_error_malformed_packet("Invalid left slot, expected an int"),
                 writer,
             )
             return None
         if "right" in packet and not isinstance(packet["right"], int):
             self.write_response_packet(
                 packet,
-                status_error_malformed_packet(
-                    "Invalid right slot, expected an int"
-                ),
+                status_error_malformed_packet("Invalid right slot, expected an int"),
                 writer,
             )
             return None
-        if "request_id" in packet and not isinstance(
-            packet["request_id"], str
-        ):
+        if "request_id" in packet and not isinstance(packet["request_id"], str):
             self.write_response_packet(
                 packet,
                 status_error_malformed_packet(
@@ -498,9 +496,7 @@ class Nabd:
         if "event" in packet and not isinstance(packet["event"], bool):
             self.write_response_packet(
                 packet,
-                status_error_malformed_packet(
-                    "Invalid event slot, expected a bool"
-                ),
+                status_error_malformed_packet("Invalid event slot, expected a bool"),
                 writer,
             )
             return None
@@ -578,9 +574,7 @@ class Nabd:
         else:
             self.write_response_packet(
                 packet,
-                status_error_malformed_packet(
-                    "Missing required request_id slot"
-                ),
+                status_error_malformed_packet("Missing required request_id slot"),
                 writer,
             )
 
@@ -652,9 +646,7 @@ class Nabd:
             logging.debug(f"unknown mode packet from service: {packet}")
             self.write_response_packet(
                 packet,
-                status_error_malformed_packet(
-                    "Mode packet with unknown mode slot"
-                ),
+                status_error_malformed_packet("Mode packet with unknown mode slot"),
                 writer,
             )
         else:
@@ -725,9 +717,7 @@ class Nabd:
         logging.debug(f"unknown test packet from service: {packet}")
         self.write_response_packet(
             packet,
-            status_error_malformed_packet(
-                "Test packet with missing test slot"
-            ),
+            status_error_malformed_packet("Test packet with missing test slot"),
             writer,
         )
         return None
@@ -763,9 +753,7 @@ class Nabd:
         if self.nabio.rfid is None:
             self.write_response_packet(
                 packet,
-                status_error(
-                    "NFCException", "Unknown exception while writing NFC tag"
-                ),
+                status_error("NFCException", "Unknown exception while writing NFC tag"),
                 writer,
             )
             return
@@ -856,9 +844,7 @@ class Nabd:
             perform_reboot = False
         asyncio.ensure_future(self._shutdown(perform_reboot))
 
-    async def process_packet(
-        self, packet: AnyPacket, writer: asyncio.StreamWriter
-    ):
+    async def process_packet(self, packet: AnyPacket, writer: asyncio.StreamWriter):
         """
         Process a packet from a service
         Thread: service_loop
@@ -906,9 +892,7 @@ class Nabd:
             for sw, events in self.service_writers.items():
                 if self._test_event_mask(event_type, events):
                     self.write_packet(response, sw)
-        elif self._test_event_mask(
-            event_type, self.interactive_service_events
-        ):
+        elif self._test_event_mask(event_type, self.interactive_service_events):
             logging.debug(
                 f"send event to interactive service: {event_type}, {response}"
             )
@@ -933,9 +917,9 @@ class Nabd:
     ):
         response_packet: AnyPacket = cast(AnyPacket, template)
         if original_packet is not None and "request_id" in original_packet:
-            response_packet["request_id"] = cast(
-                ServiceRequestPacket, original_packet
-            )["request_id"]
+            response_packet["request_id"] = cast(ServiceRequestPacket, original_packet)[
+                "request_id"
+            ]
         response_packet["type"] = "response"
         self.write_packet(cast(ResponsePacket, response_packet), writer)
 
@@ -958,15 +942,10 @@ class Nabd:
                 if line != b"" and line != b"\r\n":
                     try:
                         packet = json.loads(line.decode("utf8"))
-                        if (
-                            not isinstance(packet, dict)
-                            or "type" not in packet
-                        ):
+                        if not isinstance(packet, dict) or "type" not in packet:
                             self.write_response_packet(
                                 None,
-                                status_error_malformed_packet(
-                                    "Missing type slot"
-                                ),
+                                status_error_malformed_packet("Missing type slot"),
                                 writer,
                             )
                         else:
@@ -1007,9 +986,7 @@ class Nabd:
     ):
         if "request_id" in packet:
             self.playing_request_id = packet["request_id"]
-        self.playing_cancelable = (
-            "cancelable" not in packet or packet["cancelable"]
-        )
+        self.playing_cancelable = "cancelable" not in packet or packet["cancelable"]
         self.playing_canceled = False
         if packet["type"] == "command":
             await self.nabio.play_sequence(packet["sequence"])
@@ -1022,9 +999,7 @@ class Nabd:
         self.playing_request_id = None
         self.playing_cancelable = False
 
-    def button_callback(
-        self, button_event: ButtonEventType, event_time: float
-    ):
+    def button_callback(self, button_event: ButtonEventType, event_time: float):
         """
         Thread: run_loop
         """
@@ -1092,9 +1067,7 @@ class Nabd:
     async def _shutdown(self, doReboot):
         await self.stop_idle_worker()
         Nabd.leds_boot(self.nabio, 0)
-        await self.nabio.move_ears(
-            Nabd.SLEEP_EAR_POSITION, Nabd.SLEEP_EAR_POSITION
-        )
+        await self.nabio.move_ears(Nabd.SLEEP_EAR_POSITION, Nabd.SLEEP_EAR_POSITION)
         if doReboot:
             await self._do_system_command("/sbin/reboot")
         else:
@@ -1147,9 +1120,7 @@ class Nabd:
                     },
                 )
 
-    def rfid_callback(
-        self, tech, uid, picture, app, app_data, flags, tag_info
-    ):
+    def rfid_callback(self, tech, uid, picture, app, app_data, flags, tag_info):
         # bytes.hex(sep) is python 3.8+
         uid_str = ":".join("{:02x}".format(c) for c in uid)
         packet = {
@@ -1184,7 +1155,7 @@ class Nabd:
             app_str = self._get_rfid_app(app)
             packet["app"] = app_str
             if app_data is not None:
-                app_data_str_bin = app_data.split(b"\xFF", 1)[0]
+                app_data_str_bin = app_data.split(b"\xff", 1)[0]
                 app_data_str = app_data_str_bin.decode("utf8")
                 packet["data"] = app_data_str
             event_type = "rfid/" + app_str
@@ -1365,8 +1336,7 @@ class Nabd:
             exit(1)
         except LockFailed:
             error_msg = (
-                f"Cannot write pid file to {pidfilepath}, please fix "
-                f"permissions"
+                f"Cannot write pid file to {pidfilepath}, please fix permissions"
             )
             print(error_msg)
             logging.critical(error_msg)

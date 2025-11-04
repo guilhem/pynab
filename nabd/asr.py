@@ -2,11 +2,19 @@ import struct
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
-import numpy as np
-from kaldiasr.nnet3 import (  # type: ignore
-    KaldiNNet3OnlineDecoder,
-    KaldiNNet3OnlineModel,
-)
+try:
+    import numpy as np
+    from kaldiasr.nnet3 import (  # type: ignore
+        KaldiNNet3OnlineDecoder,
+        KaldiNNet3OnlineModel,
+    )
+
+    HAS_ASR_DEPENDENCIES = True
+except ImportError:
+    HAS_ASR_DEPENDENCIES = False
+    np = None  # type: ignore
+    KaldiNNet3OnlineDecoder = None  # type: ignore
+    KaldiNNet3OnlineModel = None  # type: ignore
 
 
 class ASR:
@@ -29,6 +37,11 @@ class ASR:
             return ASR.DEFAULT_LOCALE
 
     def __init__(self, locale):
+        if not HAS_ASR_DEPENDENCIES:
+            raise ImportError(
+                "ASR dependencies (numpy, py-kaldi-asr) are not installed. "
+                "Install with: pip install -e .[asr]"
+            )
         self.executor = ThreadPoolExecutor(max_workers=1)
         self._load_model(locale)
 
@@ -39,17 +52,13 @@ class ASR:
         self.decoder = KaldiNNet3OnlineDecoder(self.model)
 
     def decode_chunk(self, samples, finalize):
-        self.executor.submit(
-            lambda s=samples, f=finalize: self._decode_chunk(s, f)
-        )
+        self.executor.submit(lambda s=samples, f=finalize: self._decode_chunk(s, f))
 
     def _decode_chunk(self, frames, finalize):
         try:
             nframes = len(frames) / 2
             samples = struct.unpack_from("<%dh" % nframes, frames)
-            self.decoder.decode(
-                16000, np.array(samples, dtype=np.float32), finalize
-            )
+            self.decoder.decode(16000, np.array(samples, dtype=np.float32), finalize)
         except Exception:
             print(traceback.format_exc())
 

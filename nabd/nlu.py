@@ -2,7 +2,13 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from snips_nlu import SnipsNLUEngine  # type: ignore
+try:
+    from snips_nlu import SnipsNLUEngine  # type: ignore
+
+    HAS_NLU_DEPENDENCIES = True
+except ImportError:
+    HAS_NLU_DEPENDENCIES = False
+    SnipsNLUEngine = None  # type: ignore
 
 from nabweb import settings
 
@@ -27,6 +33,11 @@ class NLU:
             return NLU.DEFAULT_LOCALE
 
     def __init__(self, locale):
+        if not HAS_NLU_DEPENDENCIES:
+            raise ImportError(
+                "NLU dependencies (snips-nlu) are not installed. "
+                "Install with: pip install -e .[nlu]"
+            )
         self.executor = ThreadPoolExecutor(max_workers=1)
         self._load_model(locale)
 

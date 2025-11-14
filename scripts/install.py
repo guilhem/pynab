@@ -84,13 +84,13 @@ class PynabInstaller:
         return response in ["y", "yes"]
 
     def _run_command(
-        self, cmd: List[str], check: bool = True, capture_output: bool = False
+        self, cmd: List[str], check: bool = True, capture_output: bool = False, env: Optional[dict] = None
     ) -> subprocess.CompletedProcess:
         """Run a command with error handling."""
         logger.info(f"Running: {' '.join(cmd)}")
         try:
             result = subprocess.run(
-                cmd, check=check, capture_output=capture_output, text=True
+                cmd, check=check, capture_output=capture_output, text=True, env=env
             )
             return result
         except subprocess.CalledProcessError as e:
@@ -177,9 +177,9 @@ class PynabInstaller:
         """Install required system packages via apt-get."""
         system_packages = []
         
-        # Padatious requires libfann
+        # Padatious requires libfann and SWIG for fann2 build
         if "nlu" in extras:
-            system_packages.append("libfann-dev")
+            system_packages.extend(["libfann-dev", "swig"])
         
         # Hardware support may need additional packages
         if "hardware" in extras:
@@ -244,6 +244,37 @@ class PynabInstaller:
         # Install system dependencies if needed
         self._install_system_dependencies(adjusted_extras)
         
+        # For NLU with Padatious, install fann2 separately first with proper build env
+        build_env = os.environ.copy()
+        if adjusted_extras and "nlu" in adjusted_extras:
+            logger.info("Pre-installing fann2 for Padatious (requires SWIG)...")
+            # Install SWIG which is needed to build fann2
+            try:
+                result = subprocess.run(
+                    ["dpkg", "-l", "swig"],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                if result.returncode != 0:
+                    logger.info("Installing SWIG for fann2 build...")
+                    self._run_command(["sudo", "apt-get", "install", "-y", "swig"])
+            except Exception as e:
+                logger.warning(f"Could not install SWIG: {e}")
+            
+            # Try to install fann2 from pre-built wheel or build with proper env
+            build_env["CFLAGS"] = build_env.get("CFLAGS", "") + " -I/usr/include"
+            build_env["LDFLAGS"] = build_env.get("LDFLAGS", "") + " -L/usr/lib/aarch64-linux-gnu"
+            try:
+                logger.info("Installing fann2...")
+                self._run_command(
+                    [str(pip), "install", "fann2==1.1.2"],
+                    env=build_env,
+                    check=False  # Don't fail if this doesn't work
+                )
+            except Exception as e:
+                logger.warning(f"fann2 pre-installation failed, will retry with padatious: {e}")
+        
         # For Kaldi ASR (Pi Zero W only with Python 3.7-3.9), install build dependencies
         if adjusted_extras and "asr-kaldi" in adjusted_extras:
             if major == 3 and minor >= 11:
@@ -273,7 +304,7 @@ class PynabInstaller:
             install_cmd[-1] = f"{self.root_dir}[{extras_str}]"
 
         logger.info(f"Installing Pynab with extras: {adjusted_extras or ['none']}")
-        self._run_command(install_cmd)
+        self._run_command(install_cmd, env=build_env)
 
         # Post-installation: Download models for ASR/NLU if needed
         if adjusted_extras and ("asr-vosk" in adjusted_extras or "asr-kaldi" in adjusted_extras or "nlu" in adjusted_extras):

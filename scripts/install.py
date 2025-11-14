@@ -173,6 +173,60 @@ class PynabInstaller:
         
         return adjusted
 
+    def _install_system_dependencies(self, extras: List[str]):
+        """Install required system packages via apt-get."""
+        system_packages = []
+        
+        # Padatious requires libfann
+        if "nlu" in extras:
+            system_packages.append("libfann-dev")
+        
+        # Hardware support may need additional packages
+        if "hardware" in extras:
+            system_packages.extend(["portaudio19-dev", "python3-pyaudio"])
+        
+        if not system_packages:
+            return
+        
+        logger.info(f"Installing system dependencies: {', '.join(system_packages)}")
+        logger.info("This requires sudo privileges...")
+        
+        try:
+            # Check if packages are already installed
+            missing_packages = []
+            for pkg in system_packages:
+                result = subprocess.run(
+                    ["dpkg", "-l", pkg],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                if result.returncode != 0:
+                    missing_packages.append(pkg)
+            
+            if not missing_packages:
+                logger.info("All system dependencies already installed")
+                return
+            
+            # Update package lists
+            logger.info("Updating package lists...")
+            self._run_command(["sudo", "apt-get", "update", "-qq"])
+            
+            # Install missing packages
+            logger.info(f"Installing: {', '.join(missing_packages)}")
+            self._run_command(
+                ["sudo", "apt-get", "install", "-y"] + missing_packages
+            )
+            
+            logger.info("✓ System dependencies installed")
+            
+        except Exception as e:
+            logger.warning(f"Failed to install system dependencies: {e}")
+            logger.warning("You may need to install them manually:")
+            logger.warning(f"  sudo apt-get install {' '.join(system_packages)}")
+            if not self.interactive or not self._confirm("Continue anyway?"):
+                raise InstallationError("System dependencies installation failed")
+
     def install_python_packages(
         self, venv_path: Path, extras: Optional[List[str]] = None
     ):
@@ -186,6 +240,9 @@ class PynabInstaller:
         # Detect hardware to adjust ASR dependencies
         major, minor = sys.version_info[:2]
         adjusted_extras = self._adjust_extras_for_hardware(extras)
+        
+        # Install system dependencies if needed
+        self._install_system_dependencies(adjusted_extras)
         
         # For Kaldi ASR (Pi Zero W only with Python 3.7-3.9), install build dependencies
         if adjusted_extras and "asr-kaldi" in adjusted_extras:

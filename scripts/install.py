@@ -123,61 +123,15 @@ class PynabInstaller:
 
         return venv_path
 
-    def install_python_packages(
-        self, venv_path: Path, extras: Optional[List[str]] = None
-    ):
-        """Install Python packages using pip."""
-        pip = venv_path / "bin" / "pip"
-
-        # Upgrade pip and install wheel
-        logger.info("Upgrading pip and installing wheel")
-        self._run_command([str(pip), "install", "--upgrade", "pip", "wheel"])
-
-        # For Python 3.11+, ASR/NLU packages need to be compiled from source
-        # Install build dependencies first
-        major, minor = sys.version_info[:2]
-        needs_compilation = major == 3 and minor >= 11
-
-        if extras and ("asr" in extras or "nlu" in extras or "all" in extras):
-            if needs_compilation:
-                logger.warning(
-                    f"Python {major}.{minor} detected. "
-                    "ASR/NLU packages will be compiled from source (this may take a while)."
-                )
-                logger.info("Installing build dependencies...")
-                self._run_command(
-                    [str(pip), "install", "Cython==0.29.30", "numpy==1.21.4"]
-                )
-            else:
-                logger.info("Installing build dependencies for ASR/NLU...")
-                self._run_command(
-                    [str(pip), "install", "Cython==0.29.30", "numpy==1.21.4"]
-                )
-
-        # Install package with optional extras
-        install_cmd = [str(pip), "install", "-e", str(self.root_dir)]
-
-        if extras:
-            extras_str = ",".join(extras)
-            install_cmd[-1] = f"{self.root_dir}[{extras_str}]"
-
-        logger.info(f"Installing Pynab with extras: {extras or ['none']}")
-        self._run_command(install_cmd)
-
-        # Post-installation: Download models for ASR/NLU if needed
-        if extras and ("asr" in extras or "nlu" in extras or "all" in extras):
-            self.install_asr_nlu_models(venv_path, extras)
-
-    def install_asr_nlu_models(self, venv_path: Path, extras: List[str]):
+    def _adjust_extras_for_hardware(self, extras: Optional[List[str]]) -> List[str]:
         """
-        Install ASR and NLU models based on detected hardware.
-        This replaces the old Kaldi/Snips model download and training.
+        Adjust extras based on detected hardware.
+        Replaces generic 'asr' and 'all' with hardware-specific ASR packages.
         """
-        logger.info("\n" + "=" * 60)
-        logger.info("Installing ASR/NLU models")
-        logger.info("=" * 60)
-
-        # Detect hardware to determine which ASR to use
+        if not extras:
+            return []
+        
+        # Detect hardware
         try:
             sys.path.insert(0, str(self.root_dir))
             from nabcommon.hardware_detect import can_use_vosk, detect_pi_model
@@ -188,23 +142,103 @@ class PynabInstaller:
             if pi_model:
                 logger.info(f"Detected hardware: {pi_model}")
             else:
-                logger.info("Could not detect Pi model, defaulting to Kaldi")
+                logger.info("Could not detect Pi model, defaulting to Kaldi ASR")
                 use_vosk = False
 
         except Exception as e:
             logger.warning(f"Hardware detection failed: {e}")
             logger.info("Defaulting to Kaldi ASR")
             use_vosk = False
-
-        # Install ASR models
-        if "asr" in extras or "all" in extras:
-            if use_vosk:
-                self._install_vosk_models()
+        
+        adjusted = []
+        for extra in extras:
+            if extra == "asr":
+                # Replace generic 'asr' with hardware-specific variant
+                if use_vosk:
+                    logger.info("Using Vosk ASR (recommended for Pi Zero 2 W)")
+                    adjusted.append("asr-vosk")
+                else:
+                    logger.info("Using Kaldi ASR (for Pi Zero W)")
+                    adjusted.append("asr-kaldi")
+            elif extra == "all":
+                # Expand 'all' to include hardware-specific ASR
+                adjusted.extend(["hardware", "services"])
+                if use_vosk:
+                    adjusted.append("asr-vosk")
+                else:
+                    adjusted.append("asr-kaldi")
+                adjusted.append("nlu")
             else:
-                self._install_kaldi_models()
+                adjusted.append(extra)
+        
+        return adjusted
+
+    def install_python_packages(
+        self, venv_path: Path, extras: Optional[List[str]] = None
+    ):
+        """Install Python packages using pip."""
+        pip = venv_path / "bin" / "pip"
+
+        # Upgrade pip and install wheel
+        logger.info("Upgrading pip and installing wheel")
+        self._run_command([str(pip), "install", "--upgrade", "pip", "wheel"])
+
+        # Detect hardware to adjust ASR dependencies
+        major, minor = sys.version_info[:2]
+        adjusted_extras = self._adjust_extras_for_hardware(extras)
+        
+        # For Kaldi ASR (Pi Zero W only with Python 3.7-3.9), install build dependencies
+        if adjusted_extras and "asr-kaldi" in adjusted_extras:
+            if major == 3 and minor >= 11:
+                logger.error(
+                    f"Python {major}.{minor} is not compatible with Kaldi ASR (requires numpy 1.21.4)."
+                )
+                logger.error(
+                    "On Pi Zero 2 W, please use Vosk ASR which is automatically selected."
+                )
+                logger.error(
+                    "On Pi Zero W, please use Python 3.9 or earlier for Kaldi ASR support."
+                )
+                raise InstallationError(
+                    "Python 3.11+ requires Vosk ASR (Pi Zero 2 W or better)"
+                )
+            
+            logger.info("Installing build dependencies for Kaldi ASR...")
+            self._run_command(
+                [str(pip), "install", "Cython==0.29.30", "numpy==1.21.4"]
+            )
+
+        # Install package with optional extras (using adjusted extras)
+        install_cmd = [str(pip), "install", "-e", str(self.root_dir)]
+
+        if adjusted_extras:
+            extras_str = ",".join(adjusted_extras)
+            install_cmd[-1] = f"{self.root_dir}[{extras_str}]"
+
+        logger.info(f"Installing Pynab with extras: {adjusted_extras or ['none']}")
+        self._run_command(install_cmd)
+
+        # Post-installation: Download models for ASR/NLU if needed
+        if adjusted_extras and ("asr-vosk" in adjusted_extras or "asr-kaldi" in adjusted_extras or "nlu" in adjusted_extras):
+            self.install_asr_nlu_models(venv_path, adjusted_extras)
+
+    def install_asr_nlu_models(self, venv_path: Path, extras: List[str]):
+        """
+        Install ASR and NLU models based on installed packages.
+        This replaces the old Kaldi/Snips model download and training.
+        """
+        logger.info("\n" + "=" * 60)
+        logger.info("Installing ASR/NLU models")
+        logger.info("=" * 60)
+
+        # Install ASR models based on which variant was installed
+        if "asr-vosk" in extras:
+            self._install_vosk_models()
+        elif "asr-kaldi" in extras:
+            self._install_kaldi_models()
 
         # NLU is now Padatious - no models to download!
-        if "nlu" in extras or "all" in extras:
+        if "nlu" in extras:
             logger.info("NLU: Using Padatious (no model download needed)")
             logger.info(
                 "Intent files will be loaded from service directories at runtime"
@@ -225,8 +259,8 @@ class PynabInstaller:
             print("\nVosk model installation:")
             print("For optimal memory usage on Pi Zero 2 W (512MB RAM),")
             print("it's recommended to install only ONE language model.")
-            install_fr = self._confirm("Install French model (41MB)? [Y/n]")
-            install_en = self._confirm("Install English model (40MB)? [y/N]")
+            install_fr = input("Install French model (41MB)? [Y/n]: ").strip().lower() not in ["n", "no"]
+            install_en = input("Install English model (40MB)? [y/N]: ").strip().lower() in ["y", "yes"]
         else:
             # Non-interactive: install French by default
             install_fr = True
@@ -270,10 +304,12 @@ class PynabInstaller:
                 logger.error(f"Failed to install {model['name']}: {e}")
 
         # Optional: Configure ZRAM for better memory management
-        if self.interactive and self._confirm(
-            "\nConfigure ZRAM swap for better memory management (recommended for Pi Zero 2 W)? [y/N]"
-        ):
-            self._setup_zram()
+        if self.interactive:
+            response = input(
+                "\nConfigure ZRAM swap for better memory management (recommended for Pi Zero 2 W)? [y/N]: "
+            ).strip().lower()
+            if response in ["y", "yes"]:
+                self._setup_zram()
 
     def _install_kaldi_models(self):
         """Install Kaldi models for Pi Zero W (legacy)."""

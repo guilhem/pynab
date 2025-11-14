@@ -59,8 +59,11 @@ asr-vosk = ["vosk==0.3.45"]
 # ASR - Backward compatibility alias (defaults to Kaldi)
 asr = ["pynab[asr-kaldi]"]
 
-# NLU (Natural Language Understanding) - Modern Padatious
-nlu = ["padatious==0.4.8", "dateparser==1.1.8", "PyYAML==6.0"]
+# NLU (Natural Language Understanding) - Simple pattern-based (no external deps except dateparser)
+nlu = ["dateparser==1.1.8", "PyYAML==6.0"]
+
+# NLU - Padatious (deprecated due to fann2 build issues)
+nlu-padatious = ["padatious==0.4.8", "dateparser==1.1.8", "PyYAML==6.0"]
 
 # NLU - Legacy Snips (deprecated, for migration only)
 nlu-snips = [

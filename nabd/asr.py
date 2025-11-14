@@ -2,6 +2,7 @@ import struct
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
+# Try to import Kaldi ASR dependencies
 try:
     import numpy as np
     from kaldiasr.nnet3 import (  # type: ignore
@@ -9,17 +10,61 @@ try:
         KaldiNNet3OnlineModel,
     )
 
-    HAS_ASR_DEPENDENCIES = True
+    HAS_KALDI_DEPENDENCIES = True
 except ImportError:
-    HAS_ASR_DEPENDENCIES = False
+    HAS_KALDI_DEPENDENCIES = False
     np = None  # type: ignore
     KaldiNNet3OnlineDecoder = None  # type: ignore
     KaldiNNet3OnlineModel = None  # type: ignore
 
+# Try to import Vosk ASR
+try:
+    from .asr_vosk import HAS_VOSK_DEPENDENCIES, VoskASR
+except ImportError:
+    VoskASR = None  # type: ignore
+    HAS_VOSK_DEPENDENCIES = False
 
-class ASR:
+# Try to detect hardware
+try:
+    from nabcommon.hardware_detect import can_use_vosk
+except ImportError:
+    can_use_vosk = lambda: False  # type: ignore
+
+
+def create_asr(locale):
     """
-    Class handling automatic speech recognition.
+    Factory function to create appropriate ASR instance based on hardware.
+
+    Returns VoskASR for Pi Zero 2 W and better hardware.
+    Returns KaldiASR for Pi Zero W or if Vosk is not available.
+    """
+    # Check if we can and should use Vosk
+    if HAS_VOSK_DEPENDENCIES and can_use_vosk():
+        try:
+            return VoskASR(locale)
+        except Exception as e:
+            print(f"Failed to initialize Vosk ASR, falling back to Kaldi: {e}")
+            if HAS_KALDI_DEPENDENCIES:
+                return KaldiASR(locale)
+            raise
+
+    # Fall back to Kaldi
+    if HAS_KALDI_DEPENDENCIES:
+        return KaldiASR(locale)
+
+    # No ASR available
+    raise ImportError(
+        "No ASR dependencies available. "
+        "Install with: pip install -e .[asr-kaldi] or pip install -e .[asr-vosk]"
+    )
+
+
+# Keep ASR as an alias to KaldiASR for backward compatibility
+# But prefer using create_asr() factory function
+class KaldiASR:
+    """
+    Class handling automatic speech recognition using Kaldi.
+    Legacy implementation for Pi Zero W and fallback.
     """
 
     MODELS = {
@@ -31,23 +76,23 @@ class ASR:
 
     @staticmethod
     def get_locale(locale):
-        if locale in ASR.MODELS:
+        if locale in KaldiASR.MODELS:
             return locale
         else:
-            return ASR.DEFAULT_LOCALE
+            return KaldiASR.DEFAULT_LOCALE
 
     def __init__(self, locale):
-        if not HAS_ASR_DEPENDENCIES:
+        if not HAS_KALDI_DEPENDENCIES:
             raise ImportError(
-                "ASR dependencies (numpy, py-kaldi-asr) are not installed. "
-                "Install with: pip install -e .[asr]"
+                "Kaldi ASR dependencies (numpy, py-kaldi-asr) are not installed. "
+                "Install with: pip install -e .[asr-kaldi]"
             )
         self.executor = ThreadPoolExecutor(max_workers=1)
         self._load_model(locale)
 
     def _load_model(self, locale):
-        locale = ASR.get_locale(locale)
-        path = ASR.MODELS[locale]
+        locale = KaldiASR.get_locale(locale)
+        path = KaldiASR.MODELS[locale]
         self.model = KaldiNNet3OnlineModel(path, max_mem=20000)
         self.decoder = KaldiNNet3OnlineDecoder(self.model)
 
@@ -68,12 +113,16 @@ class ASR:
             return future.result()
         else:
             # not sure we could do that
-            str, likelihood = self.decoder.get_decoded_string()
-            return str
+            text, likelihood = self.decoder.get_decoded_string()
+            return text
 
     def _get_decoded_string(self):
         try:
-            str, likelihood = self.decoder.get_decoded_string()
-            return str
+            text, likelihood = self.decoder.get_decoded_string()
+            return text
         except Exception:
             print(traceback.format_exc())
+
+
+# Backward compatibility alias
+ASR = KaldiASR

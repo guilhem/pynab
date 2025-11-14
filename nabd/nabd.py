@@ -126,12 +126,16 @@ class Nabd:
         if self.nabio.has_sound_input():
             try:
                 from . import i18n
-                from .asr import ASR
+                from .asr import KaldiASR, VoskASR, create_asr
                 from .nlu import NLU
 
                 config = i18n.Config.load()
-                self._asr_locale = ASR.get_locale(config.locale)
-                self.asr: Optional[ASR] = ASR(self._asr_locale)
+                # Use KaldiASR.get_locale for backward compatibility
+                # Both KaldiASR and VoskASR have the same locale mapping
+                self._asr_locale = KaldiASR.get_locale(config.locale)
+                # Use factory function to auto-select ASR implementation
+                self.asr = create_asr(self._asr_locale)
+                print(f"Using ASR implementation: {self.asr.__class__.__name__}")
                 Nabd.leds_boot(self.nabio, 3)
                 self._nlu_locale = NLU.get_locale(config.locale)
                 self.nlu: Optional[NLU] = NLU(self._nlu_locale)
@@ -154,18 +158,19 @@ class Nabd:
         if self.nabio.has_sound_input():
             try:
                 from . import i18n
-                from .asr import ASR
+                from .asr import KaldiASR, create_asr
                 from .nlu import NLU
 
                 config = await i18n.Config.load_async()
-                new_asr_locale = ASR.get_locale(config.locale)
+                new_asr_locale = KaldiASR.get_locale(config.locale)
                 new_nlu_locale = NLU.get_locale(config.locale)
                 if new_asr_locale != self._asr_locale:
                     Nabd.leds_boot(self.nabio, 2)
                     self._asr_locale = new_asr_locale
                     self.asr = None
                     gc.collect()
-                    self.asr = ASR(self._asr_locale)
+                    self.asr = create_asr(self._asr_locale)
+                    print(f"Reloaded ASR: {self.asr.__class__.__name__}")
                     Nabd.leds_boot(self.nabio, 3)
                 if new_nlu_locale != self._nlu_locale:
                     Nabd.leds_boot(self.nabio, 3)

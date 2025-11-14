@@ -21,76 +21,76 @@ from typing import List, Optional
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 
 class InstallationError(Exception):
     """Base exception for installation errors."""
+
     pass
 
 
 class PynabInstaller:
     """Main installer class for Pynab."""
-    
+
     def __init__(self, root_dir: Path, interactive: bool = True):
         self.root_dir = root_dir
         self.interactive = interactive
         self.python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
         self.machine = platform.machine()
         self.system = platform.system()
-        
+
     def check_platform(self) -> bool:
         """Check if the platform is supported."""
-        if self.system != 'Linux':
+        if self.system != "Linux":
             logger.warning(f"Platform {self.system} may not be fully supported")
             return False
-            
+
         # Check if Raspberry Pi
         try:
-            with open('/proc/cpuinfo', 'r') as f:
+            with open("/proc/cpuinfo", "r") as f:
                 cpuinfo = f.read()
-                if 'Raspberry Pi' not in cpuinfo:
+                if "Raspberry Pi" not in cpuinfo:
                     logger.warning("This installation is optimized for Raspberry Pi")
                     return self.interactive and self._confirm("Continue anyway?")
         except FileNotFoundError:
             logger.warning("Cannot detect hardware platform")
-            
+
         return True
-    
+
     def check_python_version(self) -> bool:
         """Check if Python version is supported."""
         major, minor = sys.version_info[:2]
         if major < 3 or (major == 3 and minor < 7):
-            logger.error(f"Python {major}.{minor} is not supported. Requires Python 3.7+")
+            logger.error(
+                f"Python {major}.{minor} is not supported. Requires Python 3.7+"
+            )
             return False
-        
+
         if minor not in [7, 9, 11]:
             logger.warning(f"Python {major}.{minor} may not be fully tested")
-            
+
         logger.info(f"Python {major}.{minor} detected")
         return True
-    
+
     def _confirm(self, message: str) -> bool:
         """Ask user for confirmation in interactive mode."""
         if not self.interactive:
             return True
-        
+
         response = input(f"{message} [y/N]: ").strip().lower()
-        return response in ['y', 'yes']
-    
-    def _run_command(self, cmd: List[str], check: bool = True, 
-                     capture_output: bool = False) -> subprocess.CompletedProcess:
+        return response in ["y", "yes"]
+
+    def _run_command(
+        self, cmd: List[str], check: bool = True, capture_output: bool = False
+    ) -> subprocess.CompletedProcess:
         """Run a command with error handling."""
         logger.info(f"Running: {' '.join(cmd)}")
         try:
             result = subprocess.run(
-                cmd, 
-                check=check,
-                capture_output=capture_output,
-                text=True
+                cmd, check=check, capture_output=capture_output, text=True
             )
             return result
         except subprocess.CalledProcessError as e:
@@ -98,7 +98,7 @@ class PynabInstaller:
             if e.stderr:
                 logger.error(f"Error output: {e.stderr}")
             raise InstallationError(f"Command failed: {' '.join(cmd)}")
-    
+
     def setup_venv(self, venv_path: Path) -> Path:
         """Create or verify virtual environment."""
         if venv_path.exists():
@@ -106,114 +106,288 @@ class PynabInstaller:
             # Check if it's the right Python version
             pyvenv_cfg = venv_path / "pyvenv.cfg"
             if pyvenv_cfg.exists():
-                with open(pyvenv_cfg, 'r') as f:
+                with open(pyvenv_cfg, "r") as f:
                     content = f.read()
                     if f"version = {self.python_version}" not in content:
                         logger.warning("Virtual environment Python version mismatch")
                         if self._confirm("Recreate virtual environment?"):
                             import shutil
+
                             shutil.rmtree(venv_path)
                         else:
                             return venv_path
-        
+
         if not venv_path.exists():
             logger.info(f"Creating virtual environment at {venv_path}")
             self._run_command([sys.executable, "-m", "venv", str(venv_path)])
-        
+
         return venv_path
-    
-    def install_python_packages(self, venv_path: Path, 
-                                extras: Optional[List[str]] = None):
+
+    def install_python_packages(
+        self, venv_path: Path, extras: Optional[List[str]] = None
+    ):
         """Install Python packages using pip."""
         pip = venv_path / "bin" / "pip"
-        
+
         # Upgrade pip and install wheel
         logger.info("Upgrading pip and installing wheel")
         self._run_command([str(pip), "install", "--upgrade", "pip", "wheel"])
-        
+
+        # For Python 3.11+, ASR/NLU packages need to be compiled from source
+        # Install build dependencies first
+        major, minor = sys.version_info[:2]
+        needs_compilation = major == 3 and minor >= 11
+
+        if extras and ("asr" in extras or "nlu" in extras or "all" in extras):
+            if needs_compilation:
+                logger.warning(
+                    f"Python {major}.{minor} detected. "
+                    "ASR/NLU packages will be compiled from source (this may take a while)."
+                )
+                logger.info("Installing build dependencies...")
+                self._run_command(
+                    [str(pip), "install", "Cython==0.29.30", "numpy==1.21.4"]
+                )
+            else:
+                logger.info("Installing build dependencies for ASR/NLU...")
+                self._run_command(
+                    [str(pip), "install", "Cython==0.29.30", "numpy==1.21.4"]
+                )
+
         # Install package with optional extras
         install_cmd = [str(pip), "install", "-e", str(self.root_dir)]
-        
+
         if extras:
             extras_str = ",".join(extras)
             install_cmd[-1] = f"{self.root_dir}[{extras_str}]"
-        
+
         logger.info(f"Installing Pynab with extras: {extras or ['none']}")
         self._run_command(install_cmd)
-    
+
+        # Post-installation: Download models for ASR/NLU if needed
+        if extras and ("asr" in extras or "nlu" in extras or "all" in extras):
+            self.install_asr_nlu_models(venv_path, extras)
+
+    def install_asr_nlu_models(self, venv_path: Path, extras: List[str]):
+        """
+        Install ASR and NLU models based on detected hardware.
+        This replaces the old Kaldi/Snips model download and training.
+        """
+        logger.info("\n" + "=" * 60)
+        logger.info("Installing ASR/NLU models")
+        logger.info("=" * 60)
+
+        # Detect hardware to determine which ASR to use
+        try:
+            sys.path.insert(0, str(self.root_dir))
+            from nabcommon.hardware_detect import can_use_vosk, detect_pi_model
+
+            pi_model = detect_pi_model()
+            use_vosk = can_use_vosk()
+
+            if pi_model:
+                logger.info(f"Detected hardware: {pi_model}")
+            else:
+                logger.info("Could not detect Pi model, defaulting to Kaldi")
+                use_vosk = False
+
+        except Exception as e:
+            logger.warning(f"Hardware detection failed: {e}")
+            logger.info("Defaulting to Kaldi ASR")
+            use_vosk = False
+
+        # Install ASR models
+        if "asr" in extras or "all" in extras:
+            if use_vosk:
+                self._install_vosk_models()
+            else:
+                self._install_kaldi_models()
+
+        # NLU is now Padatious - no models to download!
+        if "nlu" in extras or "all" in extras:
+            logger.info("NLU: Using Padatious (no model download needed)")
+            logger.info(
+                "Intent files will be loaded from service directories at runtime"
+            )
+
+    def _install_vosk_models(self):
+        """Install Vosk models for Pi Zero 2 W and better."""
+        import urllib.request
+        import zipfile
+
+        logger.info("Installing Vosk ASR models...")
+
+        models_dir = Path("/opt/vosk/models")
+        models_dir.mkdir(parents=True, exist_ok=True)
+
+        # Ask user which language(s) to install
+        if self.interactive:
+            print("\nVosk model installation:")
+            print("For optimal memory usage on Pi Zero 2 W (512MB RAM),")
+            print("it's recommended to install only ONE language model.")
+            install_fr = self._confirm("Install French model (41MB)? [Y/n]")
+            install_en = self._confirm("Install English model (40MB)? [y/N]")
+        else:
+            # Non-interactive: install French by default
+            install_fr = True
+            install_en = False
+
+        models = []
+        if install_fr:
+            models.append(
+                {
+                    "name": "vosk-model-small-fr-0.22",
+                    "url": "https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip",
+                    "size": "41MB",
+                }
+            )
+        if install_en:
+            models.append(
+                {
+                    "name": "vosk-model-small-en-us-0.15",
+                    "url": "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
+                    "size": "40MB",
+                }
+            )
+
+        for model in models:
+            model_path = models_dir / model["name"]
+            if model_path.exists():
+                logger.info(f"Model {model['name']} already exists, skipping")
+                continue
+
+            logger.info(f"Downloading {model['name']} ({model['size']})...")
+            zip_path = models_dir / f"{model['name']}.zip"
+
+            try:
+                urllib.request.urlretrieve(model["url"], zip_path)
+                logger.info(f"Extracting {model['name']}...")
+                with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                    zip_ref.extractall(models_dir)
+                zip_path.unlink()
+                logger.info(f"✓ Installed {model['name']}")
+            except Exception as e:
+                logger.error(f"Failed to install {model['name']}: {e}")
+
+        # Optional: Configure ZRAM for better memory management
+        if self.interactive and self._confirm(
+            "\nConfigure ZRAM swap for better memory management (recommended for Pi Zero 2 W)? [y/N]"
+        ):
+            self._setup_zram()
+
+    def _install_kaldi_models(self):
+        """Install Kaldi models for Pi Zero W (legacy)."""
+        logger.info("Installing Kaldi ASR models...")
+        logger.info(
+            "Note: Kaldi installation requires running the legacy install.sh script"
+        )
+        logger.info("or manual installation of Kaldi binaries to /opt/kaldi/")
+
+        # For now, just inform the user
+        # The full Kaldi installation logic is complex and lives in install.sh
+        logger.warning(
+            "Kaldi ASR installation is complex and requires system-level changes.\n"
+            "Please refer to INSTALL.md or run the legacy install.sh script."
+        )
+
+    def _setup_zram(self):
+        """Setup ZRAM swap for better memory management on Pi Zero 2 W."""
+        logger.info("Setting up ZRAM swap...")
+
+        try:
+            # Check if zram-tools is installed
+            result = subprocess.run(
+                ["dpkg", "-l", "zram-tools"], capture_output=True, text=True
+            )
+
+            if result.returncode != 0:
+                logger.info("Installing zram-tools...")
+                self._run_command(["sudo", "apt-get", "update"])
+                self._run_command(["sudo", "apt-get", "install", "-y", "zram-tools"])
+
+            logger.info("✓ ZRAM configured")
+            logger.info("Note: Reboot required for ZRAM to take effect")
+
+        except Exception as e:
+            logger.warning(f"Failed to setup ZRAM: {e}")
+            logger.info(
+                "You can manually install it later with: sudo apt-get install zram-tools"
+            )
+
     def select_installation_profile(self) -> List[str]:
         """Let user select which components to install."""
         if not self.interactive:
             logger.info("Non-interactive mode: using 'all' profile")
-            return ['all']
-        
+            return ["all"]
+
         print("\nSelect installation profile:")
         print("1. Minimal (core only, no hardware/ASR/NLU)")
         print("2. Hardware (core + Raspberry Pi hardware support)")
         print("3. Full (all components including ASR and NLU)")
         print("4. Custom (select individual components)")
         print("5. Development (full + dev tools)")
-        
+
         choice = input("\nEnter choice [1-5, default=3]: ").strip() or "3"
-        
+
         profiles = {
             "1": [],
             "2": ["hardware"],
             "3": ["all"],
             "4": self._select_custom_components(),
-            "5": ["all", "dev"]
+            "5": ["all", "dev"],
         }
-        
+
         return profiles.get(choice, ["all"])
-    
+
     def _select_custom_components(self) -> List[str]:
         """Let user select individual components."""
         components = {
             "hardware": "Raspberry Pi hardware support (GPIO, LEDs, sound)",
-            "asr": "Automatic Speech Recognition (Kaldi)",
-            "nlu": "Natural Language Understanding (Snips)",
+            "asr": "Automatic Speech Recognition (Vosk for Pi Zero 2 W, Kaldi for Pi Zero W)",
+            "nlu": "Natural Language Understanding (Padatious)",
             "services": "External services (Mastodon, weather)",
-            "dev": "Development and testing tools"
+            "dev": "Development and testing tools",
         }
-        
+
         selected = []
         print("\nAvailable components:")
         for key, desc in components.items():
             if self._confirm(f"Install {key} ({desc})?"):
                 selected.append(key)
-        
+
         return selected
-    
-    def install(self, venv_path: Optional[Path] = None, 
-                extras: Optional[List[str]] = None):
+
+    def install(
+        self, venv_path: Optional[Path] = None, extras: Optional[List[str]] = None
+    ):
         """Run the installation process."""
         logger.info("Starting Pynab installation")
-        
+
         # Platform checks
         if not self.check_python_version():
             raise InstallationError("Python version check failed")
-        
+
         if not self.check_platform():
             if not self._confirm("Continue with installation despite warnings?"):
                 logger.info("Installation cancelled by user")
                 return
-        
+
         # Select installation profile
         if extras is None:
             extras = self.select_installation_profile()
-        
+
         # Setup virtual environment
         if venv_path is None:
             venv_path = self.root_dir / "venv"
-        
+
         venv_path = self.setup_venv(venv_path)
-        
+
         # Install Python packages
         self.install_python_packages(venv_path, extras)
-        
-        logger.info("\n" + "="*60)
+
+        logger.info("\n" + "=" * 60)
         logger.info("Python packages installation completed!")
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("\nNext steps:")
         logger.info("1. Activate the virtual environment:")
         logger.info(f"   source {venv_path}/bin/activate")
@@ -232,73 +406,64 @@ def main():
 Examples:
   # Interactive installation (recommended for first-time users)
   python -m scripts.install
-  
+
   # Non-interactive full installation
   python -m scripts.install --non-interactive --profile all
-  
+
   # Install only hardware support
   python -m scripts.install --extras hardware
-  
+
   # Install with custom virtual environment location
   python -m scripts.install --venv /opt/pynab/venv
-        """
+        """,
     )
-    
+
     parser.add_argument(
-        "--venv",
-        type=Path,
-        help="Path to virtual environment (default: ./venv)"
+        "--venv", type=Path, help="Path to virtual environment (default: ./venv)"
     )
-    
+
     parser.add_argument(
         "--extras",
         nargs="+",
         choices=["hardware", "asr", "nlu", "services", "dev", "all"],
-        help="Additional components to install"
+        help="Additional components to install",
     )
-    
+
     parser.add_argument(
         "--profile",
         choices=["minimal", "hardware", "full", "dev"],
-        help="Installation profile (full=all, dev=all+dev)"
+        help="Installation profile (full=all, dev=all+dev)",
     )
-    
+
     parser.add_argument(
-        "--non-interactive",
-        action="store_true",
-        help="Run in non-interactive mode"
+        "--non-interactive", action="store_true", help="Run in non-interactive mode"
     )
-    
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose logging"
-    )
-    
+
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
     args = parser.parse_args()
-    
+
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    
+
     # Determine root directory
     root_dir = Path(__file__).parent.parent.resolve()
-    
+
     # Map profile to extras
     if args.profile:
         profile_map = {
             "minimal": [],
             "hardware": ["hardware"],
             "full": ["all"],
-            "dev": ["all", "dev"]
+            "dev": ["all", "dev"],
         }
         extras = profile_map[args.profile]
     else:
         extras = args.extras
-    
+
     try:
         installer = PynabInstaller(
-            root_dir=root_dir,
-            interactive=not args.non_interactive
+            root_dir=root_dir, interactive=not args.non_interactive
         )
         installer.install(venv_path=args.venv, extras=extras)
     except InstallationError as e:

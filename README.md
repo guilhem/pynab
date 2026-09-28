@@ -13,7 +13,7 @@ La qualification du démarrage, des pilotes et du rollback sur les deux matérie
 1. Télécharger l'image `.img.xz` correspondant au matériel dans une [release qualifiée](https://github.com/nabaztag2018/pynab/releases) : `zero-armv6` pour le Zero original, `zero2-arm64` pour le Zero 2.
 2. Vérifier `SHA256SUMS`, puis flasher une carte microSD de **16 Go minimum**.
 3. Démarrer le lapin et configurer le Wi-Fi depuis le point d'accès Comitup.
-4. Ouvrir l'interface locale et terminer la configuration de l'administration.
+4. Ouvrir `http://nabaztag.local:8080` et terminer la configuration de l'administration avec le bouton du lapin.
 
 L'installation historique nécessite un **reflash** ; les anciens réglages ne sont pas migrés. SSH est désactivé par défaut. DietPi et la carte Maker Faire 2018 ne font pas partie de cette génération.
 

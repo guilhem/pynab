@@ -102,7 +102,7 @@ truncate -s "$((root_start * 512 + 6 * 1024 * 1024 * 1024))" "$work/base.img"
 printf 'start=%s,size=%s\n' "$root_start" "$((6 * 1024 * 1024 * 1024 / 512))" | sfdisk --no-reread -N2 "$work/base.img"
 loop=$(sudo losetup --find --show --partscan "$work/base.img")
 sudo udevadm settle
-sudo e2fsck -p "${loop}p2" || [[ $? == 1 ]]
+sudo e2fsck -pf "${loop}p2" || [[ $? == 1 ]]
 sudo resize2fs "${loop}p2"
 sudo mount "${loop}p2" "$root"
 sudo mkdir -p "$root/boot/firmware" "$root/pynab-build"

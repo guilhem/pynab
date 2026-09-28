@@ -1,115 +1,50 @@
-# Nabaztag en Python pour Raspberry Pi
+# Pynab
 
-[![build (qemu)](https://github.com/nabaztag2018/pynab/actions/workflows/arm-runner.yml/badge.svg?branch=master)](https://github.com/nabaztag2018/pynab/actions/workflows/arm-runner.yml)
-[![tests](https://github.com/nabaztag2018/pynab/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/nabaztag2018/pynab/actions/workflows/tests.yml)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![codecov](https://codecov.io/gh/nabaztag2018/pynab/branch/master/graph/badge.svg)](https://codecov.io/gh/nabaztag2018/pynab)
-[![Twitter](https://img.shields.io/twitter/follow/nabaztagtagtag?label=Follow&style=social)](https://twitter.com/nabaztagtagtag)
+Logiciel libre pour les Nabaztag équipés d'une carte **TagTagTag 2019/2021** ou **NFC 2022**, avec Raspberry Pi Zero ou Zero 2.
 
-## Cartes
+[![Images](https://github.com/nabaztag2018/pynab/actions/workflows/images.yml/badge.svg)](https://github.com/nabaztag2018/pynab/actions/workflows/images.yml)
 
-Ce système est conçu pour deux cartes pour **Nabaztag** (v1) et **Nabaztag:Tag** (v2) :
-- Une carte réalisée pour [Maker Faire 2018](https://paris.makerfaire.com/maker/entry/1285/), qui ne fonctionne qu'avec les Nabaztag (sans micro ni RFID).
-- Une nouvelle version de la carte, proposée via les campagnes Ulule de [mai 2019](https://fr.ulule.com/le-retour-du-nabaztag/) et [octobre 2021](https://fr.ulule.com/l-eternel-retour-du-nabaztag/), qui fonctionne avec les Nabaztag et les Nabaztag:Tag (les micros sont sur la carte, ce qui permet aux Nabaztag de bénéficier aussi de la reconnaissance vocale).
+Cette génération utilise **Raspberry Pi OS Lite Trixie + RAUC**, avec PipeWire et un bus MQTT 5 local. Le cœur matériel est en Rust ; l'interface, la configuration et les services sont en Go. Les réglages sont enregistrés atomiquement dans un fichier JSON versionné : aucun serveur de base de données n'est nécessaire.
 
-Les schémas et fichiers de fabrication de ces deux cartes sont dans le repository [hardware](https://github.com/nabaztag2018/hardware), respectivement [`RPI_Nabaztag`](https://github.com/nabaztag2018/hardware/blob/master/RPI_Nabaztag.PDF) (2018) et [`tagtagtag_V2.0`](https://github.com/nabaztag2018/hardware/tree/master/tagtagtag_V2.0) (2019).
+La qualification du démarrage, des pilotes et du rollback sur les deux matériels est requise avant publication. Les constructions de développement et les tests de simulation ne constituent pas cette qualification.
 
-## Images
+## Installation
 
-Les [releases](https://github.com/nabaztag2018/pynab/releases) sont des images de [Raspberry Pi OS](https://www.raspberrypi.org/software/operating-systems/) Lite ou [DietPi](https://dietpi.com/) avec Pynab pré-installé.
+1. Télécharger l'image `.img.xz` correspondant au matériel dans une [release qualifiée](https://github.com/nabaztag2018/pynab/releases) : `zero-armv6` pour le Zero original, `zero2-arm64` pour le Zero 2.
+2. Vérifier `SHA256SUMS`, puis flasher une carte microSD de **16 Go minimum**.
+3. Démarrer le lapin et configurer le Wi-Fi depuis le point d'accès Comitup.
+4. Ouvrir l'interface locale et terminer la configuration de l'administration.
 
-Les releases actuelles (>0.7.x) ne fonctionnent pas sur les cartes 2018 (cf [#44](https://github.com/nabaztag2018/pynab/issues/44)).
+L'installation historique nécessite un **reflash** ; les anciens réglages ne sont pas migrés. SSH est désactivé par défaut. DietPi et la carte Maker Faire 2018 ne font pas partie de cette génération.
 
-## Installation sur Raspberry Pi OS ou DietPi (pour développeurs!)
+Les mises à jour sont proposées dans l'interface après une recherche quotidienne sur GitHub Releases. L'installation est déclenchée par l'utilisateur. RAUC vérifie la signature et la compatibilité, écrit le slot inactif, puis valide le nouveau système après contrôle des services locaux. Les données et réglages sont conservés. Firmware Raspberry Pi et U-Boot restent ceux du flash initial.
 
-### 0. S'assurer que le système est bien à jour
+## Composants
 
-Le script d'installation requiert une version basée sur Debian 11 (Bullseye), avec Python 3.9.
+| Composant | Rôle |
+|---|---|
+| `core/` — `nab-core` | Matériel, états, séquences, chorégraphies, synchronisation avec le son |
+| `services/` — `nab-service` | Interface locale, réglages, horloge, météo, ressources, Home Assistant, mises à jour |
+| Mosquitto | Transport MQTT 5 local ; [contrat JSON v1](docs/protocol-v1.md) |
+| PipeWire + WirePlumber | Lecture et capture ALSA ; compatibilité PulseAudio pour la voix |
+| NetworkManager + Comitup | Connexion Wi-Fi et configuration initiale |
+| RAUC + U-Boot | Installation signée A/B et retour à la version précédente |
 
-Debian 10 (Buster), avec Python 3.7 ([Raspberry Pi OS Legacy](https://www.raspberrypi.com/software/operating-systems/#raspberry-pi-os-legacy)), est aussi supporté.
+Linux Voice Assistant est préinstallé uniquement sur ARM64 et **désactivé par défaut**. Son activation utilise Home Assistant pour la reconnaissance et la synthèse. Le bouton précède la qualification du mot d'activation et de l'annulation d'écho. L'API de périphériques reste en boucle locale.
 
-Il est nécessaire que les 'kernel headers' installés via `apt-get` correspondent à la version installée du noyau.
+Les pilotes existants oreilles, WM8960, CR14 et ST25R391x, la bibliothèque `rpi_ws281x` et les ressources audio/chorégraphiques sont réutilisés. Un seul lecteur RFID est activé selon le matériel détecté. Les répertoires Python historiques sont conservés comme références et sources de ressources ; ils ne sont pas installés dans les nouvelles images.
 
-```sh
-sudo apt-get update
-sudo apt-get upgrade
-```
+## Développement
 
-### 1. Configurer les pilotes pour le son, les oreilles et le lecteur RFID et redémarrer.
-
-- Son : le pilote dépend de votre carte TagTagTag:
-   - Carte Maker Faire 2018 : [pilote HiFiBerry](https://web.archive.org/web/20170914003528/support.hifiberry.com/hc/en-us/articles/205377651-Configuring-Linux-4-x-or-higher)
-   - Carte Ulule 2019 : [pilote WM8960 - branche tagtagtag-sound](https://github.com/pguyot/wm8960/tree/tagtagtag-sound)
-
- - Oreilles : [pilote tagtagtag-ears](https://github.com/pguyot/tagtagtag-ears)
-
- - Lecteur RFID :
-   - [pilote CR14](https://github.com/pguyot/cr14) (Nabaztag:tag uniquement, non requis sur les Nabaztag, mais installé par les mises à jour)
-   - [pilote st25r391x](https://github.com/pguyot/st25r391x) (carte NFC 2022 pour Nabaztag & Nabaztag:tag)
-
-Les 'kernel headers' sont nécessaires pour la compilation des pilotes:
-```sh
-sudo apt-get install gcc make raspberrypi-kernel-headers
-```
-
-### 2. Installer PostgreSQL et les paquets requis
+La [documentation de fabrication](docs/build.md) décrit les commandes locales, les runners GitHub standards, les dépendances archivées, les secrets de signature et le partitionnement. La [fiche de qualification](docs/release-checklist.md) accompagne les brouillons de release.
 
 ```sh
-sudo apt-get install postgresql libpq-dev git python3 python3-venv python3-dev gettext nginx openssl libssl-dev libffi-dev libmpg123-dev libasound2-dev libatlas-base-dev libgfortran5 libopenblas-dev liblapack-dev zram-tools
-```
-Sur DietPi les paquets suivants sont aussi nécessaires:
-```sh
-sudo apt-get install alsa-utils xz-utils avahi-daemon
-```
-
-### 3. Récupérer le code
-
-```sh
-git clone https://github.com/nabaztag2018/pynab.git
-cd pynab
+cargo test --locked --manifest-path core/Cargo.toml
+(cd services && go test -race ./...)
+python3 -m unittest discover -s image -p 'test_*.py' -v
+python3 tools/integration.py
 ```
 
-### 4. Lancer le script d'installation
-Ce script fait le reste, notamment l'installation et le démarrage des services via `systemd`.
+Le dernier contrôle requiert Mosquitto et ses clients. Les règles de contribution sont dans [CONTRIBUTING.md](CONTRIBUTING.md).
 
-```sh
-bash install.sh
-```
-
-ou, pour les cartes de la Maker Faire 2018 :
-
-```sh
-bash install.sh --makerfaire2018
-```
-
-## Mise à jour
-
-A priori, cela fonctionne via l'interface web.
-Si nécessaire, il est possible de le faire en ligne de commande avec :
-```sh
-cd pynab
-bash upgrade.sh
-```
-
-## NabBlockly
-
-[NabBlockly](https://github.com/pguyot/nabblockly), une interface de programmation des chorégraphies du lapin par blocs, est installé sur les images des releases depuis la 0.6.3b et fonctionne sur le port [8080](http://nabaztag.local:8080/). L'installation est possible sur le port 80 en modifiant la configuration de Nginx.
-
-## Architecture
-
-Voir le [protocole nabd](PROTOCOL.md)
-
-- `nabd` : démon qui gère le lapin (e/s, chorégraphies)
-- `nab8balld` : démon pour le service gourou
-- `nabairqualityd` : démon pour le service de qualité de l'air
-- `nabclockd` : démon pour le service horloge
-- `nabsurprised` : démon pour le service surprises
-- `nabtaichid` : démon pour le service taichi
-- `nabmastodond` : démon pour le service mastodon
-- `nabweatherd` : démon pour le service météo
-- `nabiftttd` : démon pour le service IFTTT
-- `nabweb` : interface web pour la configuration
-
-## Contribution
-
-Vos contributions sont toujours les bienvenues ! Veuillez d'abord consulter les [directives de contribution](CONTRIBUTING.md).
+Les logiciels ajoutés sont libres. Les firmwares binaires nécessaires au Raspberry Pi restent une exception fournie par Raspberry Pi OS.

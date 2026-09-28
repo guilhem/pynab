@@ -111,3 +111,9 @@ tmp/
 
 # nabblockly subdirectory
 /nabblockly/
+
+# System image overlay (the historical Python ignore rules also match usr/lib).
+!image/rootfs/usr/lib/
+!image/rootfs/usr/lib/**
+!image/rootfs/var/
+!image/rootfs/var/**

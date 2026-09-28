@@ -1,87 +1,43 @@
-name: 🧪 Tests
+name: Tests
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  test_suite:
-    name: Run test suite
-    runs-on: ubuntu-22.04
-    # Service containers
-    services:
-      postgres:
-        image: postgres
-        # Provide the password for postgres
-        env:
-          POSTGRES_PASSWORD: postgres
-        # Set health checks to wait until postgres has started
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          # Maps tcp port 5432 on service container to the host
-          - 5432:5432
-
-    strategy:
-      fail-fast: false
-      matrix:
-        python: [3.7, 3.9]
-
+  test:
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout pynab
-        uses: actions/checkout@v3
-
-      - name: Set up Python ${{ matrix.python }}
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          python-version: ${{ matrix.python }}
-          cache: 'pip'
-
-      - name: Install dependencies
+          go-version: '1.27.1'
+          cache-dependency-path: services/go.sum
+      - name: Install test dependencies
         run: |
-          sudo apt update -y
-          sudo apt-get install -y libasound2-dev libmpg123-dev libatlas-base-dev curl
-          wget -q -O install_mkl.sh https://raw.githubusercontent.com/kaldi-asr/kaldi/aef1d98603b68e6cf3a973e9dcd71915e2a175fe/tools/extras/install_mkl.sh
-          sudo bash install_mkl.sh
-          wget -q -O - "https://github.com/pguyot/kaldi/releases/download/0ff452b/kaldi-0ff452b-linux_ubuntu22.04-x86_64.tar.xz" | sudo tar xJ -C /
-          sudo ldconfig
-          python -m pip install --upgrade pip setuptools wheel
-          pip install Cython==0.29.30 numpy==1.21.4 setuptools_rust
-
-      - name: Install requirements
-        run: pip install -r requirements.txt
-
-      - name: Install kaldi models
+          sudo apt-get update
+          sudo apt-get install -y mosquitto mosquitto-clients shellcheck device-tree-compiler
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.98.1
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('core/Cargo.lock') }}
+      - name: Rust
         run: |
-          sudo mkdir -p /opt/kaldi/model/
-          sudo tar xJf asr/kaldi-nabaztag-en-adapt-r20191222.tar.xz -C /opt/kaldi/model/
-          sudo tar xJf asr/kaldi-nabaztag-fr-adapt-r20200203.tar.xz -C /opt/kaldi/model/
-
-      - name: Setup PostgreSQL database
+          cargo fmt --manifest-path core/Cargo.toml --check
+          cargo clippy --locked --manifest-path core/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path core/Cargo.toml
+      - name: Go
+        working-directory: services
         run: |
-          PGPASSWORD=postgres PGHOST=localhost PGPORT=5432 psql -U postgres -d postgres -c "CREATE USER pynab PASSWORD 'pynab'; ALTER ROLE pynab CREATEDB;"
-
-      - name: Setup NLU engines
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race ./...
+      - name: Image and protocol checks
         run: |
-          python -m snips_nlu download fr
-          python -m snips_nlu download en
-          mkdir -p nabd/nlu
-          python -m snips_nlu generate-dataset en */nlu/intent_en.yaml > nabd/nlu/nlu_dataset_en.json
-          python -m snips_nlu generate-dataset fr */nlu/intent_fr.yaml > nabd/nlu/nlu_dataset_fr.json
-          snips-nlu train nabd/nlu/nlu_dataset_en.json nabd/nlu/engine_en
-          snips-nlu train nabd/nlu/nlu_dataset_fr.json nabd/nlu/engine_fr
-
-      - name: Fake NTP synchronization
-        run: sudo mkdir -p /run/systemd/timesync/ && sudo touch /run/systemd/timesync/synchronized
-
-      - name: Check types with mypy
-        run: |
-          mypy nab*
-
-      - name: Run test suite with coverage
-        run: |
-          PGPASSWORD=pynab PGHOST=localhost PGPORT=5432 coverage run -m pytest
+          bash -n image/build.sh image/prepare.sh image/host-deps.sh
+          python3 -m unittest discover -s image -p 'test_*.py' -v
+          python3 tools/integration.py

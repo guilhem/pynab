@@ -1,42 +1,28 @@
-name: "CodeQL"
-
+name: CodeQL
 on:
   push:
-    branches: [ "master" ]
+    branches: [master]
   pull_request:
-    branches: [ "master" ]
+    branches: [master]
   schedule:
-    - cron: "25 3 * * 0"
-
+    - cron: '25 3 * * 0'
+permissions:
+  contents: read
 jobs:
   analyze:
-    name: Analyze
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
-      actions: read
-      contents: read
       security-events: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [ javascript, python ]
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          languages: ${{ matrix.language }}
-          queries: +security-and-quality
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v2
-        if: ${{ matrix.language == 'javascript' || matrix.language == 'python' }}
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2
+          go-version: '1.27.1'
+          cache-dependency-path: services/go.sum
+      - uses: github/codeql-action/init@7999b86c43a865dc79d8923397f35af22de63401 # v4
         with:
-          category: "/language:${{ matrix.language }}"
+          languages: go,python
+          build-mode: manual
+      - run: go build ./...
+        working-directory: services
+      - uses: github/codeql-action/analyze@7999b86c43a865dc79d8923397f35af22de63401 # v4

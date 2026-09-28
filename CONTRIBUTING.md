@@ -1,140 +1,28 @@
-# Contribution guidelines
+# Contribuer à Pynab
 
-Thank you so much for contributing to the project. All contributions are
-welcome. Please take a moment to review these guidelines. Following them will
-ensure the contribution process is easy and effective for everyone involved.
+Le système courant est décrit dans le [README](README.md), son transport dans le [contrat MQTT v1](docs/protocol-v1.md), et ses images dans le [guide de build](docs/build.md).
 
-## How to contribute to Pynab
+## Boucle locale
 
-### Reporting bugs
+Utiliser Go 1.27.1, Rust 1.98.1, Python 3.12+ et Mosquitto avec ses clients. Le cœur possède un mode `--simulate` pour vérifier le protocole sur un ordinateur sans matériel Nabaztag.
 
-Please **Check [existing issues](https://github.com/nabaztag2018/pynab/issues)** to make sure the
-bug was not already reported. If you are running latest release, make sure the
-bug was not fixed on master branch by checking closed issues as well.
-
-If you're unable to find an open issue addressing the problem,
-[open a new one](https://github.com/nabaztag2018/pynab/issues/new). Be sure to include as much
-relevant information as possible, ideally providing a reproduceable test case
-demonstrating the expected behavior that is not occurring.
-
-### New features or changes to existing features
-
-If have new ideas but lack the skills to implement them, please discuss them
-on the [community forum](https://tagtagtag.fr/forum/). Ideas that demonstrate
-a strong community demand are more likely to find skilled developers willing
-to implement them.
-
-Please note that services can be added without being integrated to pynab base
-project and could simply exploit the [Nabd protocol](PROTOCOL.md) and be installed separately.
-
-If you intend to add a new feature or change an existing one, please engage
-discussion first about what you are proposing by filing
-[a new issue](https://github.com/nabaztag2018/pynab/issues/new) or discussing it on the
-[Discussions page](https://github.com/nabaztag2018/pynab/discussions).
-
-### Submitting patches
-
-Please open a new GitHub pull request with the patch. Before submitting, please
-read the guide below about developing. We are more likely to accept
-patches for existing issues / enhancements.
-
-### Your first code contribution
-
-Unsure where to begin contributing to Pynab? You can start by looking at issues
-tagged [`good first issue`](https://github.com/nabaztag2018/pynab/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
-They have been especially selected as they seem not too difficult at first
-sight.
-
-## How to work with GitHub and Pull Requests
-
-You can develop directly on your rabbit (Raspberry Pi) that you have of course
-configured with ssh access (make sure you changed the default password). We
-use editors with SFTP support.
-
-If you haven't done so yet, fork the repository on GitHub, then add this fork
-to your rabbit's repository.
-```
-cd /opt/pynab
-git remote add fork https://github.com/YOUR_GITHUB_USERNAME/pynab.git
+```sh
+cargo fmt --manifest-path core/Cargo.toml --check
+cargo clippy --locked --manifest-path core/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path core/Cargo.toml
+(cd services && go vet ./... && go test -race ./...)
+python3 -m unittest discover -s image -p 'test_*.py' -v
+python3 tools/integration.py
 ```
 
-To develop your code, create a local branch with a name that makes sense.
-```
-git fetch origin
-git checkout -b feature-name origin/master
-```
+Les réglages doivent rester lisibles par la version précédente après rollback. Les commandes MQTT sont identifiées, expirables et non retenues. Ne pas déplacer la temporisation des mouvements hors du cœur local.
 
-At anytime, you can run tests locally (on the rabbit) by first stopping pynab
-and services. Hardware tests require root access.
-```
-sudo ./venv/bin/python manage.py stop_all
-sudo ./venv/bin/pytest
-sudo ./venv/bin/python manage.py start_all
-```
+## Modifications système
 
-Before committing your code, make sure the style is conforming by running pre-commit
-```
-./venv/bin/pre-commit
-```
+Les modules externes sont construits contre les en-têtes et symboles du noyau installé dans l'image. Vérifier les deux architectures. Une compilation ARMv7 ne valide pas le Zero ARMv6. Ne jamais installer ou compiler les dépendances sur l'appareil lors d'une mise à jour.
 
-Once you are happy with the result, rebase and push it to a dedicated branch on
-your own GitHub fork.
-```
-git fetch origin
-git rebase origin/master
-git push fork HEAD:feature-name
-```
+Pour modifier une source externe, mettre à jour sa révision et son SHA-256 dans `image/sources.lock.json`. Conserver les licences et les archives nécessaires à la reconstruction. Les dépendances Cargo et Go doivent avoir leurs fichiers de verrouillage à jour.
 
-GitHub will display the URL to create a pull request, with a git message such
-as:
-```
-remote:
-remote: Create a pull request for 'branch-name' on GitHub by visiting:
-remote:      https://github.com/user/pynab/pull/new/branch-name
-remote:
-```
-Then create your pull request, adding relevant comments.
-If your pull request is related to an open issue *XXX*, make sure your initial comment
-starts with *Resolves #XXX*, so that the pull request is automatically linked to the issue.
+Les changements aux pilotes, au démarrage, au son ou au rollback requièrent aussi les essais de la [fiche matérielle](docs/release-checklist.md). Indiquer clairement dans la PR ce qui a été réellement essayé et ce qui attend le matériel.
 
-Tests will be run through GitHub Actions, covering code style, code quality
-and unit tests.
-
-If tests fail, fix them and push to the branch, either with new commits or
-by amending. Once tests pass, your request will be reviewed.
-
-At any time, if you did commit your changes, you can go back to master with:
-```
-git fetch origin
-git checkout master
-bash upgrade.sh
-```
-
-The last command is required to run a full upgrade for any changes in localized
-messages, drivers and dependencies.
-
-## How to test a contributor Pull Request
-
-1. Note the number *XXX* of the PR to test from the [Pull requests page](https://github.com/nabaztag2018/pynab/pulls).
-
-2. Go to the pynab folder on your rabbit: `cd $HOME/pynab`
-
-3. Checkout *PR #XXX* to a new local branch *prxxx* (see [Checking out GitHub pull requests locally](https://docs.github.com/en/github/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/checking-out-pull-requests-locally))
-
-4. Switch to this branch: `git checkout prxxx`
-
-5. Prepare Pynab environment for testing:
-    - if needed (when PR has changes in drivers, dependencies, data models or localisation messages) do a full upgrade: `bash install.sh --upgrade`
-    - otherwise just restart the Pynab services: `sudo ./venv/bin/python manage.py stop_all && sudo ./venv/bin/python manage.py start_all`
-
-6. Do your tests...
-
-7. Switch back to default (master or release) branch: `git checkout master`
-
-8. Rollback Pynab environment:
-     - if needed (when PR had changes in drivers, dependencies, data models or localisation messages) do a full upgrade: `bash upgrade.sh`
-     - otherwise just restart the Pynab services: `sudo ./venv/bin/python manage.py stop_all && sudo ./venv/bin/python manage.py start_all`
-
-9. All done! You can delete your test branch: `git branch -D prxxx`
-
-Then add comments on Pull Request as appropriate.
+Les images sur tags deviennent des brouillons de GitHub Releases. Leur publication suit la qualification matérielle ; l'approbation et le merge des PR restent des décisions distinctes.

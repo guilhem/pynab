@@ -49,7 +49,14 @@ packages)
       "${runtime[@]}" "${development[@]}" "linux-image-$flavour"
   else
     apt-get update
-    apt-get install --yes --no-install-recommends "${runtime[@]}" "${development[@]}" "linux-image-$flavour"
+    # APT does not retry all TLS EOFs. Retry only fetching, before dpkg changes
+    # the image; successful downloads stay cached and remain hash-checked.
+    for attempt in 1 2 3; do
+      if apt-get install --download-only --yes --no-install-recommends \
+        "${runtime[@]}" "${development[@]}" "linux-image-$flavour"; then break; fi
+      (( attempt < 3 )) || exit 1
+    done
+    apt-get install --no-download --yes --no-install-recommends "${runtime[@]}" "${development[@]}" "linux-image-$flavour"
     cp /var/cache/apt/archives/*.deb "$inputs/debs/"
     dpkg-query -W -f='${Package}\t${Version}\t${Architecture}\n' > "$inputs/debs/manifest.tsv"
     (cd "$inputs/debs" && dpkg-scanpackages . /dev/null | gzip -n > Packages.gz
@@ -77,6 +84,9 @@ packages)
   (( ${#kernels[@]} > 0 )) || { echo "No $flavour kernel installed" >&2; exit 1; }
   kernel=${kernels[-1]}
   [[ -f /lib/modules/$kernel/build/Module.symvers ]] || { echo 'Matching kernel build symbols missing' >&2; exit 1; }
+  for option in CONFIG_BCM2835_WDT=y CONFIG_WATCHDOG_HANDLE_BOOT_ENABLED=y; do
+    grep -qxF "$option" "/lib/modules/$kernel/build/.config" || { echo "Kernel lacks $option" >&2; exit 1; }
+  done
   printf '%s\n' "$kernel" > /pynab-build/kernel-release
   ;;
 drivers)
@@ -113,7 +123,9 @@ drivers)
   "$src/uboot/scripts/kconfig/merge_config.sh" -m -O "$src/uboot" "$src/uboot/.config" /pynab-build/image/boot/uboot.config
   make -C "$src/uboot" olddefconfig
   for option in CONFIG_ENV_IS_IN_MMC=y CONFIG_ENV_REDUNDANT=y CONFIG_ENV_SIZE=0x10000 \
-    CONFIG_ENV_OFFSET=0x100000 CONFIG_ENV_OFFSET_REDUND=0x200000 CONFIG_OF_LIBFDT_OVERLAY=y; do
+    CONFIG_ENV_OFFSET=0x100000 CONFIG_ENV_OFFSET_REDUND=0x200000 CONFIG_OF_LIBFDT_OVERLAY=y \
+    CONFIG_WDT=y CONFIG_WDT_BCM2835=y CONFIG_CMD_WDT=y CONFIG_WATCHDOG=y \
+    '# CONFIG_WATCHDOG_AUTOSTART is not set'; do
     grep -qxF "$option" "$src/uboot/.config" || { echo "U-Boot lacks $option" >&2; exit 1; }
   done
   make -C "$src/uboot" -j2

@@ -82,6 +82,16 @@ class BootScript(unittest.TestCase):
         cls.tmp = Path(tempfile.mkdtemp(prefix="pynab-boot-"))
         dtc = SANDBOX / "scripts/dtc/dtc"
         run(dtc, "-@", "-I", "dts", "-O", "dtb", "-o", cls.tmp / "base.dtb", "-", input=BASE_DTS)
+        # Exercise the actual wdt commands using U-Boot's emulated driver,
+        # named like the firmware's hardware device on both Raspberry Pis.
+        run(dtc, "-I", "dts", "-O", "dtb", "-o", cls.tmp / "control.dtb", "-", input='''
+/dts-v1/;
+/ {
+    binman {};
+    reset { compatible = "sandbox,reset"; };
+    watchdog@7e100000 { compatible = "sandbox,wdt"; };
+};
+''')
         cls.overlays = {}
         for name, repo in (("tagtagtag-sound", "sound"), ("tagtagtag-ears", "ears")):
             real = sorted((SOURCES / repo).rglob(f"{name}-overlay.dts"))
@@ -142,7 +152,7 @@ class BootScript(unittest.TestCase):
                 shutil.copyfileobj(p, f)
         return disk
 
-    def boot(self, disk, env_changes=""):
+    def boot(self, disk, env_changes="", watchdog=True):
         # env import -d -c: the CRC-checked redundant binary replaces the whole
         # environment, exactly like a valid stored environment on the card.
         commands = (
@@ -152,7 +162,8 @@ class BootScript(unittest.TestCase):
             + env_changes + " load host 0:1 ${scriptaddr} boot.scr; source ${scriptaddr}"
         )
         # The sandbox relaunches itself on "reset": stop at the second banner.
-        proc = subprocess.Popen([str(SANDBOX / "u-boot"), "-c", commands], stdout=subprocess.PIPE,
+        control = ["-d", str(self.tmp / "control.dtb")] if watchdog else []
+        proc = subprocess.Popen([str(SANDBOX / "u-boot"), *control, "-c", commands], stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, errors="replace")
         timer = threading.Timer(60, proc.kill)
         timer.start()
@@ -171,6 +182,7 @@ class BootScript(unittest.TestCase):
         text = "\n".join(output)
         self.assertNotIn("syntax error", text)
         self.assertNotIn("Unknown command", text)
+        self.assertNotIn("Stopping watchdog timer failed", text)
         return [line.strip() for line in output if line.strip().startswith("pynab:")], text
 
     def test_stored_environment_is_complete(self):
@@ -185,8 +197,10 @@ class BootScript(unittest.TestCase):
         self.assertIn("pynab: overlay tagtagtag-sound applied", lines)
         self.assertIn("pynab: overlay tagtagtag-ears applied", lines)
         booting = next(line for line in lines if line.startswith("pynab: booting slot A:"))
-        for arg in ("root=/dev/mmcblk0p2", "rauc.slot=A", "ro", "init=/usr/lib/pynab/boot-init", "panic=10"):
+        for arg in ("root=/dev/mmcblk0p2", "rauc.slot=A", "ro", "init=/usr/lib/pynab/boot-init",
+                    "watchdog.open_timeout=300", "panic=10"):
             self.assertIn(arg, booting.split())
+        self.assertIn("Started watchdog@7e100000", output)
         self.assertIn("pynab: board revision 0x009000c1", [line.lower() for line in lines])
         self.assertIn("Unrecognized zImage", output)  # bootz was used for ARMv6
         # Only reached in the sandbox because bootz returned.
@@ -201,11 +215,17 @@ class BootScript(unittest.TestCase):
         self.assertTrue(any(line.startswith("pynab: booting slot A:") and "root=/dev/mmcblk0p2" in line for line in lines))
 
     def test_slot_b_boots_from_partition_3(self):
-        lines, _ = self.boot(self.disk("zero-armv6", slot_b=True), "setenv BOOT_ORDER 'B A'; setenv BOOT_B_LEFT 1;")
+        lines, output = self.boot(self.disk("zero-armv6", slot_b=True), "setenv BOOT_ORDER 'B A'; setenv BOOT_B_LEFT 1;")
         self.assertEqual(lines[0], "pynab: trying slot B, 0 attempts left after this one")
         booting = next(line for line in lines if line.startswith("pynab: booting slot B:"))
         self.assertIn("root=/dev/mmcblk0p3", booting.split())
         self.assertIn("rauc.slot=B", booting.split())
+        self.assertEqual(output.count("Started watchdog@7e100000"), 2)
+
+    def test_missing_watchdog_never_hands_control_to_kernel(self):
+        lines, output = self.boot(self.disk("zero-armv6"), watchdog=False)
+        self.assertIn("pynab: cannot arm watchdog", lines)
+        self.assertNotIn("Unrecognized zImage", output)
 
     def test_exhausted_slots_restore_attempts_and_reset(self):
         lines, output = self.boot(self.disk("zero-armv6"), "setenv BOOT_A_LEFT 0;")

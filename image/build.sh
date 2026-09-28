@@ -1,6 +1,14 @@
 #!/bin/bash
 # Build on a disposable Linux runner; only loop devices owned by this process are modified.
 set -euo pipefail
+# Keep chroot mounts out of host services' mount namespaces. Otherwise a host
+# service can retain the filesystem after umount and prevent its final fsck.
+if [[ ${PYNAB_BUILD_NAMESPACE:-} != 1 ]]; then
+  exec sudo --preserve-env env "PATH=$PATH" PYNAB_BUILD_NAMESPACE=1 \
+    unshare --mount --propagation private \
+    setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups \
+    bash "$0" "$@"
+fi
 repo=$(cd "$(dirname "$0")/.." && pwd)
 target=${1:?Usage: image/build.sh zero-armv6|zero2-arm64 VERSION [--development] [--replay INPUTS.tar.xz]}
 version=${2:?release version required}

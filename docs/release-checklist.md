@@ -10,6 +10,7 @@ Cette release est créée en **brouillon**. La réussite de la CI valide la fabr
 - [ ] Mise à jour A → B, puis B → A ; noyau, DTB, overlays et modules proviennent du même slot.
 - [ ] Refus de signatures incorrectes et de la mauvaise architecture ; interruption du téléchargement.
 - [ ] Coupure d'alimentation pendant écriture ; échec du nouveau démarrage ; rollback après épuisement des tentatives, sans Internet.
+- [ ] Watchdog : première alimentation par Linux moins de 16 secondes après U-Boot, y compris à froid sur Zero ; blocage avant systemd et racine absente provoquent un redémarrage (délai de reprise de 300 secondes), puis un rollback.
 - [ ] Réseau, identité, authentification, réglages et calibration conservés après mise à jour et rollback.
 - [ ] Horloge, sommeil, lecture et RFID utilisables sans Internet ni Home Assistant.
 - [ ] Sur Zero 2 : LVA activé au bouton, API périphériques accessible uniquement en boucle locale ; désactivation possible ; consommation mémoire et stabilité prolongée mesurées.

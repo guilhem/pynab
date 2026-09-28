@@ -221,6 +221,8 @@ class Harness:
 
 
 def main():
+    if not __debug__:
+        sys.exit("integration checks require Python assertions; do not use -O")
     h = Harness()
     h.build()
     try:

@@ -62,11 +62,11 @@ type CoreState struct {
 }
 
 // HardwareReady prevents confirming an update that lost a required driver.
+// RFID is optional on original Nabaztag hardware; its reader is probed separately.
 func (s CoreState) HardwareReady() bool {
 	h := s.Hardware
 	return h["simulated"] == true ||
-		h["left_ear"] == "ok" && h["right_ear"] == "ok" && h["leds"] == true && h["button"] == true &&
-			(h["rfid"] == "cr14" || h["rfid"] == "st25r391x")
+		h["left_ear"] == "ok" && h["right_ear"] == "ok" && h["leds"] == true && h["button"] == true
 }
 
 // Handlers are called from the MQTT goroutine and must not block.

@@ -3,14 +3,10 @@ package bus
 import "testing"
 
 func TestHardwareRequiredForUpdateConfirmation(t *testing.T) {
-	h := map[string]any{"left_ear": "ok", "right_ear": "ok", "leds": true, "button": true, "rfid": "cr14"}
+	h := map[string]any{"left_ear": "ok", "right_ear": "ok", "leds": true, "button": true}
 	s := CoreState{Hardware: h}
 	if !s.HardwareReady() {
 		t.Fatal("healthy TagTagTag rejected")
-	}
-	h["rfid"] = "st25r391x"
-	if !s.HardwareReady() {
-		t.Fatal("healthy NFC board rejected")
 	}
 	for key, value := range h {
 		delete(h, key)

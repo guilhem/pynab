@@ -79,26 +79,35 @@ func (f *fakeGitHub) updater(t *testing.T, installed *string) *Updater {
 }
 
 func TestInstallVerifiedBundle(t *testing.T) {
-	f := newFake(t)
-	var installed string
-	u := f.updater(t, &installed)
-	if _, err := u.Check(context.Background()); err != nil || !u.Status().Available {
-		t.Fatalf("check: %v %+v", err, u.Status())
-	}
-	if err := u.InstallLatest(context.Background()); err != nil {
-		t.Fatalf("install: %v", err)
-	}
-	if installed == "" || u.Status().State != "reboot" {
-		t.Fatalf("not installed: %+v", u.Status())
+	// GNU sha256sum preserves ./ when the image builder uses ./*.raucb.
+	for _, prefix := range []string{"", "./"} {
+		t.Run("checksum-prefix="+prefix, func(t *testing.T) {
+			f := newFake(t)
+			f.sums = strings.Replace(f.sums, f.asset, prefix+f.asset, 1)
+			var installed string
+			u := f.updater(t, &installed)
+			if _, err := u.Check(context.Background()); err != nil || !u.Status().Available {
+				t.Fatalf("check: %v %+v", err, u.Status())
+			}
+			if err := u.InstallLatest(context.Background()); err != nil {
+				t.Fatalf("install: %v", err)
+			}
+			if installed == "" || u.Status().State != "reboot" {
+				t.Fatalf("not installed: %+v", u.Status())
+			}
+		})
 	}
 }
 
 func TestRefusesUntrustedReleases(t *testing.T) {
 	cases := map[string]func(f *fakeGitHub){
-		"bad tag":       func(f *fakeGitHub) { f.tag = "v1.2.0;reboot" },
-		"foreign url":   func(f *fakeGitHub) { f.bundleURL = "https://evil.example.org/" + f.asset },
-		"bad checksum":  func(f *fakeGitHub) { f.sums = strings.Repeat("0", 64) + "  " + f.asset + "\n" },
-		"unlisted":      func(f *fakeGitHub) { f.sums = "" },
+		"bad tag":      func(f *fakeGitHub) { f.tag = "v1.2.0;reboot" },
+		"foreign url":  func(f *fakeGitHub) { f.bundleURL = "https://evil.example.org/" + f.asset },
+		"bad checksum": func(f *fakeGitHub) { f.sums = strings.Repeat("0", 64) + "  " + f.asset + "\n" },
+		"unlisted":     func(f *fakeGitHub) { f.sums = "" },
+		"checksum traversal": func(f *fakeGitHub) {
+			f.sums = strings.Replace(f.sums, f.asset, "../"+f.asset, 1)
+		},
 		"evil redirect": func(f *fakeGitHub) { f.redirectElsewhere = true },
 	}
 	for name, mutate := range cases {

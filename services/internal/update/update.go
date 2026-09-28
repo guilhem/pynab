@@ -32,7 +32,7 @@ var (
 	tagRe   = regexp.MustCompile(`^v(\d{1,6})\.(\d{1,6})\.(\d{1,6})$`)
 	assetRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 	repoRe  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$`)
-	sumRe   = regexp.MustCompile(`^([0-9a-f]{64}) [ *]([A-Za-z0-9._-]{1,128})$`)
+	sumRe   = regexp.MustCompile(`^([0-9a-f]{64}) [ *](?:\./)?([A-Za-z0-9._-]{1,128})$`)
 )
 
 type Release struct {

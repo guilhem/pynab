@@ -177,7 +177,9 @@ work,root,arch=sys.argv[1:]
 for name in ['nab-core','nab-service']:
     prefix=[]
     if arch=='armhf':
-        prefix=['qemu-arm-static','-cpu','arm1176','-L',root]
+        # QEMU's -L rewrites file lookups too, including /etc/machine-id.
+        # Only the dynamically linked core needs the target sysroot; Go is static.
+        prefix=['qemu-arm-static','-cpu','arm1176','-L',root if name=='nab-core' else '/']
     elif name=='nab-core':
         prefix=[root+'/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1',
                 '--library-path',root+'/usr/lib/aarch64-linux-gnu']

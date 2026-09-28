@@ -227,6 +227,9 @@ def main():
     h.build()
     try:
         run(h)
+    except Exception:
+        h.failures += 1  # Keep logs for startup failures as well as failed checks.
+        raise
     finally:
         h.cleanup()
         if h.failures:

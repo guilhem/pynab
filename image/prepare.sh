@@ -51,9 +51,14 @@ packages)
   fi
   # A fixed uid is shared by headless PipeWire and the application services.
   if ! getent passwd pynab >/dev/null; then
-    if getent passwd 1000 >/dev/null; then
-      echo 'Base image unexpectedly contains uid 1000; refusing to reuse an unrelated account' >&2
-      exit 1
+    existing=$(getent passwd 1000 || true)
+    if [[ -n $existing ]]; then
+      # The locked official Lite images contain the disabled first-boot pi
+      # placeholder. Replace it rather than inheriting its privileged groups.
+      [[ ${existing%%:*} == pi ]] || { echo 'Unexpected account at uid 1000' >&2; exit 1; }
+      userdel --remove pi
+      if getent group pi >/dev/null; then groupdel pi; fi
+      rm -f /etc/sudoers.d/010_pi-nopasswd
     fi
     useradd --uid 1000 --user-group --create-home --home-dir /var/lib/pynab --shell /usr/sbin/nologin pynab
   fi

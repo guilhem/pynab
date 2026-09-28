@@ -61,6 +61,14 @@ type CoreState struct {
 	Version  string         `json:"version"`
 }
 
+// HardwareReady prevents confirming an update that lost a required driver.
+func (s CoreState) HardwareReady() bool {
+	h := s.Hardware
+	return h["simulated"] == true ||
+		h["left_ear"] == "ok" && h["right_ear"] == "ok" && h["leds"] == true && h["button"] == true &&
+			(h["rfid"] == "cr14" || h["rfid"] == "st25r391x")
+}
+
 // Handlers are called from the MQTT goroutine and must not block.
 type Handlers struct {
 	OnState      func(CoreState)

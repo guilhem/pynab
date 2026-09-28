@@ -175,11 +175,13 @@ func (a *App) healthz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	connected, core := a.bus.Healthy()
+	state, _ := a.bus.State()
+	hardware := state.HardwareReady()
 	w.Header().Set("Content-Type", "application/json")
-	if !connected || !core {
+	if !connected || !core || !hardware {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
-	json.NewEncoder(w).Encode(map[string]any{"mqtt": connected, "core": core, "version": a.env.Version})
+	json.NewEncoder(w).Encode(map[string]any{"mqtt": connected, "core": core, "hardware": hardware, "version": a.env.Version})
 }
 
 func (a *App) home(w http.ResponseWriter, r *http.Request) {

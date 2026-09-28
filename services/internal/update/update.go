@@ -62,9 +62,10 @@ type Updater struct {
 	// Install hands a verified local bundle to RAUC.
 	Install func(ctx context.Context, path string, progress func(int)) error
 
-	mu      sync.Mutex
-	status  Status
-	release *Release
+	operation sync.Mutex // A check or install owns the lifecycle; Status stays readable.
+	mu        sync.Mutex
+	status    Status
+	release   *Release
 }
 
 // AllowRedirects limits redirects to https on the given host suffixes.
@@ -157,6 +158,10 @@ func (u *Updater) Check(ctx context.Context) (*Release, error) {
 	if !u.Configured() {
 		return nil, errors.New("updates are not configured on this image")
 	}
+	if !u.operation.TryLock() {
+		return nil, errors.New("an update operation is already in progress")
+	}
+	defer u.operation.Unlock()
 	u.set(func(s *Status) { s.State, s.Error = "checking", "" })
 	rel, err := u.check(ctx)
 	u.mu.Lock()
@@ -248,6 +253,11 @@ func (u *Updater) download(ctx context.Context, rel *Release, sum string) (strin
 		return "", err
 	}
 	final := filepath.Join(u.Dir, u.Asset)
+	// A power cut can leave the last completed bundle behind. Keep space for
+	// one bundle, including a resumable partial download, on the data partition.
+	if err := os.Remove(final); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
 	part := final + ".part"
 	var offset int64
 	if fi, err := os.Stat(part); err == nil && fi.Size() < rel.Size {
@@ -334,13 +344,13 @@ func (p *progressReader) Read(b []byte) (int, error) {
 
 // InstallLatest downloads, verifies and installs the checked release.
 func (u *Updater) InstallLatest(ctx context.Context) error {
+	if !u.operation.TryLock() {
+		return errors.New("an update operation is already in progress")
+	}
+	defer u.operation.Unlock()
 	u.mu.Lock()
 	rel := u.release
-	busy := u.status.State == "downloading" || u.status.State == "installing"
 	u.mu.Unlock()
-	if busy {
-		return errors.New("an update is already in progress")
-	}
 	if rel == nil || !Newer(rel.Tag, u.Current) {
 		return errors.New("no newer release")
 	}

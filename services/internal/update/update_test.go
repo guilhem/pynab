@@ -127,8 +127,16 @@ func TestInterruptedDownloadResumes(t *testing.T) {
 	if _, err := u.Check(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	// A power cut during installation can leave a completed bundle. Retaining
+	// it alongside the new download can exhaust a 16 GB card's data partition.
+	if err := os.WriteFile(filepath.Join(u.Dir, f.asset), []byte("previous bundle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := u.InstallLatest(context.Background()); err == nil || installed != "" {
 		t.Fatalf("cut download must fail without installing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(u.Dir, f.asset)); !os.IsNotExist(err) {
+		t.Fatal("stale completed bundle occupies space alongside the partial download")
 	}
 	fi, err := os.Stat(filepath.Join(u.Dir, f.asset+".part"))
 	if err != nil || fi.Size() == 0 || fi.Size() >= int64(len(f.bundle)) {
@@ -142,5 +150,45 @@ func TestInterruptedDownloadResumes(t *testing.T) {
 	}
 	if !Newer("v1.10.0", "v1.9.9") || Newer("v1.2.0", "v1.2.0") || Newer("1.3.0", "v1.0.0") {
 		t.Fatal("version comparison")
+	}
+}
+
+func TestUpdateOperationsDoNotOverlap(t *testing.T) {
+	f := newFake(t)
+	var installed string
+	u := f.updater(t, &installed)
+	if _, err := u.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	entered, finish := make(chan struct{}), make(chan struct{})
+	u.Install = func(context.Context, string, func(int)) error {
+		close(entered)
+		<-finish
+		return nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- u.InstallLatest(context.Background()) }()
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("installation did not start: %v", err)
+	case <-time.After(5 * time.Second):
+		close(finish)
+		t.Fatal("installation did not start")
+	}
+	defer func() {
+		close(finish)
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := u.InstallLatest(context.Background()); err == nil {
+		t.Error("accepted overlapping installation")
+	}
+	if _, err := u.Check(context.Background()); err == nil {
+		t.Error("accepted a release check during installation")
+	}
+	if state := u.Status().State; state != "installing" {
+		t.Errorf("lost active installation state: %s", state)
 	}
 }

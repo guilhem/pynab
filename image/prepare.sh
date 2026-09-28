@@ -27,7 +27,13 @@ packages)
   printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
   chmod 755 /usr/sbin/policy-rc.d
   mkdir -p "$inputs/debs"
-  printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\n' > /etc/apt/apt.conf.d/99pynab-build
+  printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\nAcquire::Retries "3";\n' > /etc/apt/apt.conf.d/99pynab-build
+  if [[ $target == zero-armv6 ]]; then
+    # Use the official archive directly: the stock redirector can select a
+    # mirror unreachable from standard GitHub runners. Keep its signing key.
+    sed -i 's|http://raspbian.raspberrypi.com/raspbian/|https://archive.raspbian.org/raspbian/|' \
+      /etc/apt/sources.list.d/raspbian.sources
+  fi
   if [[ $target == zero2-arm64 ]]; then
     runtime+=(python3-venv libmpv2 libgomp1)
   fi
@@ -142,6 +148,9 @@ finalize)
   fi
   # U-Boot loads the kernel and vendor DTB from the selected root partition.
   mkdir -p /boot/dtb
+  # Raspberry Pi OS keeps a compatibility symlink into the firmware FAT.
+  # Slot-local overlays must be actual files in the root filesystem.
+  if [[ -L /boot/overlays ]]; then rm /boot/overlays; fi
   cp -a /boot/firmware/overlays /boot/
   cp /boot/firmware/*.dtb /boot/dtb/
   if [[ $target == zero-armv6 ]]; then
